@@ -30,6 +30,8 @@ The browser can bring back form choices after a refresh. The app reads the real 
 | `marinhhs.org` | Yes |
 | `marincountygov.github.io` | No |
 | `marinmap.org` | Yes |
+| `marinfair.org` | Yes |
+| `marincultural.org` | Yes |
 
 - HTTPS is required. Embedded credentials and nonstandard ports are rejected.
 - Matching uses the parsed hostname, never string prefix or substring tests.

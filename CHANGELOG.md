@@ -28,6 +28,8 @@ All notable changes to Marin Links are documented here.
 - The QR code download controls no longer run off the edge of a phone screen.
 - The tracking name button now has a name that includes the words shown on it.
 
+- Approved websites now include marinfair.org and marincultural.org, and the sites under them.
+
 ### Changed
 
 - Nothing is layered over a QR code logo any more. The center alignment marks are no longer painted back on top.
