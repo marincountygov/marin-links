@@ -1,0 +1,31 @@
+schema: 1
+
+project:
+  name: Marin Links
+  repo: marin-links
+  type: app
+  owner: County of Marin
+  audience: staff
+  status: alpha
+
+platform:
+  shell: 1.18.0
+
+deployment:
+  target: github-pages
+  url: https://marincountygov.github.io/marin-links/
+
+ai:
+  used: false
+
+services:
+  brand-center:
+    name: Marin Brand Center
+    purpose: Supplies the Marin logos offered in the QR code Logo list
+    runs: browser
+    visitor-data: true
+  qr-tracker:
+    name: Marin QR Tracker
+    purpose: Counts visits to links and QR codes, and supplies the numbers for the Stats tab
+    runs: browser
+    visitor-data: true

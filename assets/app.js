@@ -1,0 +1,1490 @@
+/*
+ * Marin Links
+ * Links and QR codes are made in the browser. Images stay in the browser and
+ * are never uploaded. Visits are counted by the County tracker. Shared navigation, copy feedback, and app information are owned by
+ * the MarinOS App Shell.
+ */
+
+(() => {
+  "use strict";
+
+  const MAX_PARAMETER_ROWS = 20;
+  const MAX_IMAGE_BYTES = 2 * 1024 * 1024;
+  const MAX_IMAGE_SIDE = 4096;
+  const TARGET_PNG_SIZE = 2048;
+  const MIN_CONTRAST_WITH_WHITE = 7;
+  const ALLOWED_IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/webp"]);
+  const DEFAULT_PARAMETER_NAME = "utm_source";
+  const CUSTOM_PARAMETER_VALUE = "custom";
+  const MAX_CUSTOM_PARAMETER_NAME_LENGTH = 64;
+  const CUSTOM_PARAMETER_NAME_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._~-]*$/;
+  const PARAMETER_OPTIONS = Object.freeze([
+    { value: "utm_source", title: "Where people see the link", group: "Campaign tracking" },
+    { value: "utm_medium", title: "How the link is shared", group: "Campaign tracking" },
+    { value: "utm_campaign", title: "Campaign or project name", group: "Campaign tracking" },
+    { value: "utm_content", title: "Which version of the link", group: "Campaign tracking" },
+    { value: "utm_term", title: "Audience or keyword", group: "Campaign tracking" },
+    { value: "ref", title: "Who sent people here", group: "General" },
+    { value: "source", title: "Where the visit came from", group: "General" },
+    { value: "campaign", title: "Campaign name", group: "General" },
+    { value: "event", title: "Event name", group: "General" },
+    { value: "location", title: "Place or site", group: "General" },
+    { value: "lang", title: "Language", group: "General" },
+    { value: "category", title: "Type of content", group: "General" },
+    { value: "topic", title: "Topic", group: "General" },
+    { value: "id", title: "Record number", group: "General" },
+    { value: "form", title: "Form name", group: "General" },
+    { value: "program", title: "Program name", group: "General" },
+    { value: CUSTOM_PARAMETER_VALUE, title: "Something else", hint: "Type your own name", group: "Other" }
+  ]);
+  // The Stats tab shows the same plain names.
+  window.MarinLinksParameterTitles = Object.freeze({
+    ...Object.fromEntries(
+      PARAMETER_OPTIONS
+        .filter((option) => option.value !== CUSTOM_PARAMETER_VALUE)
+        .map((option) => [option.value, option.title])
+    ),
+    agency: "Agency"
+  });
+  const OTHER_VALUE = "__other__";
+  const NEW_CAMPAIGN_VALUE = "__new__";
+  const LOGO_UPLOAD_VALUE = "__upload__";
+  // Common answers. A short list keeps spelling the same, so Stats groups visits together.
+  const VALUE_OPTIONS = Object.freeze({
+    utm_source: [
+      ["flyer", "Flyer"], ["poster", "Poster"], ["postcard", "Postcard"],
+      ["sign", "Sign"], ["newsletter", "Newsletter"], ["website", "Website"]
+    ],
+    utm_medium: [
+      ["email", "Email"], ["sms", "Text message"], ["social", "Social media"],
+      ["paid", "Paid ads"], ["print", "Print or QR code"], ["partner", "Partner or coalition"]
+    ],
+    lang: [["en", "English"], ["es", "Spanish"]]
+  });
+  const PARAMETER_PLACEHOLDERS = Object.freeze({
+    utm_source: "flyer",
+    utm_medium: "qr",
+    utm_campaign: "flu_2026",
+    utm_content: "poster_a",
+    utm_term: "seniors",
+    ref: "library",
+    source: "outreach",
+    event: "health_fair",
+    location: "novato",
+    lang: "es"
+  });
+  const FEATURES = Object.freeze({
+    qrColorPicker: false,
+    backgroundOption: false,
+    logoUpload: false
+  });
+
+  // The app URL can opt into broader destinations. This is a public mode,
+  // not an authentication or access-control mechanism.
+  const allowAnyHttpsDestination = (() => {
+    const parameters = new URLSearchParams(window.location.search);
+    const overrides = parameters.getAll("dest");
+    return overrides.length === 1 && overrides[0] === "any";
+  })();
+
+  const state = {
+    parameterId: 0,
+    updateTimer: null,
+    imageToken: 0,
+    generationToken: 0,
+    generating: false,
+    logo: null,
+    mode: "link",
+    logos: [...(window.MarinLinksPresets?.logos || [])],
+    finalUrl: "",
+    renderResult: null,
+    openParameterPicker: null
+  };
+
+  let refs;
+
+  function byId(id) {
+    return document.getElementById(id);
+  }
+
+  function announce(message) {
+    const status = byId("app-status-message");
+    if (!status) return;
+    status.textContent = "";
+    window.requestAnimationFrame(() => {
+      status.textContent = message;
+    });
+  }
+
+  function setFieldError(input, error, message) {
+    input.setAttribute("aria-invalid", "true");
+    error.textContent = message;
+    error.hidden = false;
+  }
+
+  function clearFieldError(input, error) {
+    input.removeAttribute("aria-invalid");
+    error.textContent = "";
+    error.hidden = true;
+  }
+
+  function isAllowedHostname(hostname) {
+    return window.MarinQrAuthorizedDomains.some((entry) => {
+      if (hostname === entry.domain) return true;
+      return entry.allowSubdomains && hostname.endsWith(`.${entry.domain}`);
+    });
+  }
+
+  function parseDestination(rawValue) {
+    const raw = rawValue.trim();
+    if (!raw) return { empty: true };
+
+    let url;
+    try {
+      url = new URL(raw);
+    } catch {
+      return {
+        error: "Enter a full web address, such as https://marincounty.gov/innovation."
+      };
+    }
+
+    if (url.protocol !== "https:") {
+      return { error: "Use a secure HTTPS link." };
+    }
+
+    if (url.username || url.password) {
+      return { error: "Remove the user name or password from this link." };
+    }
+
+    if (url.port) {
+      return { error: "Remove the extra number after the website name." };
+    }
+
+    const hostname = url.hostname.toLowerCase().replace(/\.$/, "");
+    if (!hostname || (!allowAnyHttpsDestination && !isAllowedHostname(hostname))) {
+      return { error: "Use a link from an approved Marin County website." };
+    }
+
+    url.hostname = hostname;
+    return { url };
+  }
+
+  function normalizeHexColor(value) {
+    const clean = value.trim().toLowerCase();
+    if (/^[0-9a-f]{6}$/.test(clean)) return `#${clean}`;
+    if (/^#[0-9a-f]{6}$/.test(clean)) return clean;
+    return null;
+  }
+
+  function relativeLuminance(hex) {
+    const channels = [1, 3, 5].map((start) => parseInt(hex.slice(start, start + 2), 16) / 255);
+    const linear = channels.map((channel) => (
+      channel <= 0.04045
+        ? channel / 12.92
+        : ((channel + 0.055) / 1.055) ** 2.4
+    ));
+    return 0.2126 * linear[0] + 0.7152 * linear[1] + 0.0722 * linear[2];
+  }
+
+  function contrastWithWhite(hex) {
+    return 1.05 / (relativeLuminance(hex) + 0.05);
+  }
+
+  function validateColor() {
+    const color = normalizeHexColor(refs.colorText.value);
+    if (!color) {
+      setFieldError(
+        refs.colorText,
+        refs.colorError,
+        "Enter six letters or numbers, such as #1f1f1f."
+      );
+      return null;
+    }
+
+    if (contrastWithWhite(color) < MIN_CONTRAST_WITH_WHITE) {
+      setFieldError(
+        refs.colorText,
+        refs.colorError,
+        "Choose a darker color. Light QR codes may not scan."
+      );
+      return null;
+    }
+
+    clearFieldError(refs.colorText, refs.colorError);
+    refs.color.value = color;
+    return color;
+  }
+
+  function makeLabel(text, input) {
+    const label = document.createElement("label");
+    label.htmlFor = input.id;
+    label.textContent = text;
+    label.append(input);
+    return label;
+  }
+
+  function cancelScheduledUpdate() {
+    window.clearTimeout(state.updateTimer);
+    state.updateTimer = null;
+  }
+
+  function setExportActionsEnabled(enabled) {
+    refs.download.disabled = !enabled;
+    refs.downloadFormat.disabled = !enabled;
+    refs.copyLink.disabled = !enabled;
+  }
+
+  function isQrMode() {
+    return state.mode === "qr";
+  }
+
+  function emptyMessage() {
+    return isQrMode() ? "Add a web address to make a QR code." : "Add a web address to make a link.";
+  }
+
+  // Every link and QR code goes through the tracker, which counts the visit and
+  // then sends people to the web address.
+  function buildTrackedUrl(destinationHref) {
+    return `${window.MarinLinksTracker.endpoint}?d=${encodeURIComponent(destinationHref)}`;
+  }
+
+  function applyMode() {
+    const qr = isQrMode();
+    refs.designSection.hidden = !qr;
+    refs.canvasFrame.hidden = !qr;
+    refs.downloadGroup.hidden = !qr;
+    refs.scanNote.hidden = !qr;
+  }
+
+  function exportsAreReady() {
+    return Boolean(
+      state.finalUrl
+      && (state.renderResult || !isQrMode())
+      && !state.updateTimer
+      && !state.generating
+    );
+  }
+
+  function getParameterOption(value) {
+    return PARAMETER_OPTIONS.find((option) => option.value === value) || null;
+  }
+
+  function getParameterPlaceholder(value) {
+    return PARAMETER_PLACEHOLDERS[value] || "Enter a value";
+  }
+
+  function createParameterPicker(id, initialValue, errorId, onSelectionChange) {
+    const field = document.createElement("div");
+    field.className = "qr-parameter-name-field";
+
+    // The picker is a button, not a form field, so this text is not a <label>.
+    const label = document.createElement("span");
+    label.id = `parameter-name-label-${id}`;
+    label.className = "qr-parameter-label";
+    label.textContent = "What do you want to track?";
+
+    const picker = document.createElement("div");
+    picker.className = "qr-parameter-picker";
+
+    const trigger = document.createElement("button");
+    trigger.id = `parameter-name-${id}`;
+    trigger.type = "button";
+    trigger.className = "qr-parameter-picker__trigger";
+    trigger.setAttribute("aria-haspopup", "listbox");
+    trigger.setAttribute("aria-expanded", "false");
+    trigger.setAttribute("aria-describedby", errorId);
+    trigger.setAttribute("aria-labelledby", label.id);
+
+    const triggerText = document.createElement("span");
+    triggerText.className = "qr-parameter-picker__selection";
+    const triggerName = document.createElement("span");
+    triggerName.className = "qr-parameter-picker__name";
+    const triggerDescription = document.createElement("span");
+    triggerDescription.className = "qr-parameter-picker__description";
+    triggerText.append(triggerName, triggerDescription);
+
+    const arrow = document.createElement("span");
+    arrow.className = "qr-parameter-picker__arrow";
+    arrow.setAttribute("aria-hidden", "true");
+    arrow.textContent = "▾";
+    trigger.append(triggerText, arrow);
+
+    const popup = document.createElement("div");
+    popup.id = `parameter-picker-popup-${id}`;
+    popup.className = "qr-parameter-picker__popup";
+    popup.hidden = true;
+    trigger.setAttribute("aria-controls", popup.id);
+
+    const searchLabel = document.createElement("label");
+    searchLabel.className = "visually-hidden";
+    searchLabel.htmlFor = `parameter-search-${id}`;
+    searchLabel.textContent = "Search tracking details";
+
+    const search = document.createElement("input");
+    search.id = searchLabel.htmlFor;
+    search.type = "search";
+    search.className = "qr-parameter-picker__search";
+    search.placeholder = "Type to filter";
+    search.autocomplete = "off";
+    search.autocapitalize = "none";
+    search.spellcheck = false;
+    search.setAttribute("role", "combobox");
+    search.setAttribute("aria-autocomplete", "list");
+    search.setAttribute("aria-expanded", "true");
+
+    const listbox = document.createElement("div");
+    listbox.id = `parameter-options-${id}`;
+    listbox.className = "qr-parameter-picker__listbox";
+    listbox.setAttribute("role", "listbox");
+    listbox.setAttribute("aria-labelledby", label.id);
+    search.setAttribute("aria-controls", listbox.id);
+
+    const emptyMessage = document.createElement("p");
+    emptyMessage.className = "qr-parameter-picker__empty";
+    emptyMessage.setAttribute("role", "status");
+    emptyMessage.setAttribute("aria-live", "polite");
+    emptyMessage.textContent = "Nothing matches.";
+    emptyMessage.hidden = true;
+
+    const groupRecords = new Map();
+    const optionRecords = PARAMETER_OPTIONS.map((option, index) => {
+      let groupRecord = groupRecords.get(option.group);
+      if (!groupRecord) {
+        const group = document.createElement("div");
+        group.className = "qr-parameter-picker__group";
+        group.setAttribute("role", "group");
+
+        const groupLabel = document.createElement("div");
+        groupLabel.id = `parameter-group-${id}-${groupRecords.size + 1}`;
+        groupLabel.className = "qr-parameter-picker__group-label";
+        groupLabel.textContent = option.group;
+        group.setAttribute("aria-labelledby", groupLabel.id);
+        group.append(groupLabel);
+        listbox.append(group);
+        groupRecord = { element: group, options: [] };
+        groupRecords.set(option.group, groupRecord);
+      }
+
+      const optionButton = document.createElement("button");
+      optionButton.id = `parameter-option-${id}-${index + 1}`;
+      optionButton.type = "button";
+      optionButton.className = "qr-parameter-picker__option";
+      optionButton.dataset.value = option.value;
+      optionButton.setAttribute("role", "option");
+      optionButton.setAttribute("aria-selected", "false");
+      optionButton.tabIndex = -1;
+
+      const optionName = document.createElement("span");
+      optionName.className = "qr-parameter-picker__option-name";
+      optionName.textContent = option.title;
+      const optionDescription = document.createElement("span");
+      optionDescription.className = "qr-parameter-picker__option-description";
+      optionDescription.textContent = option.hint || option.value;
+      optionButton.append(optionName, optionDescription);
+      groupRecord.element.append(optionButton);
+
+      const record = { option, element: optionButton, group: groupRecord };
+      groupRecord.options.push(record);
+      return record;
+    });
+
+    popup.append(searchLabel, search, listbox, emptyMessage);
+    picker.append(trigger, popup);
+    field.append(label, picker);
+
+    let selectedValue = getParameterOption(initialValue) ? initialValue : DEFAULT_PARAMETER_NAME;
+    let activeRecord = null;
+
+    function visibleRecords() {
+      return optionRecords.filter((record) => !record.element.hidden);
+    }
+
+    function setActiveRecord(record, scroll = true) {
+      optionRecords.forEach((candidate) => {
+        candidate.element.classList.toggle("is-active", candidate === record);
+      });
+      activeRecord = record || null;
+      if (activeRecord) {
+        search.setAttribute("aria-activedescendant", activeRecord.element.id);
+        if (scroll) activeRecord.element.scrollIntoView({ block: "nearest" });
+      } else {
+        search.removeAttribute("aria-activedescendant");
+      }
+    }
+
+    function renderSelection() {
+      const selected = getParameterOption(selectedValue) || getParameterOption(DEFAULT_PARAMETER_NAME);
+      trigger.dataset.value = selected.value;
+      triggerName.textContent = selected.title;
+      triggerDescription.textContent = selected.hint || selected.value;
+      optionRecords.forEach((record) => {
+        record.element.setAttribute(
+          "aria-selected",
+          record.option.value === selected.value ? "true" : "false"
+        );
+      });
+    }
+
+    function filterOptions() {
+      const query = search.value.trim().toLowerCase();
+      optionRecords.forEach((record) => {
+        const searchable = `${record.option.value} ${record.option.title} ${record.option.hint || ""}`.toLowerCase();
+        record.element.hidden = Boolean(query) && !searchable.includes(query);
+      });
+      groupRecords.forEach((groupRecord) => {
+        groupRecord.element.hidden = !groupRecord.options.some((record) => !record.element.hidden);
+      });
+
+      const visible = visibleRecords();
+      emptyMessage.hidden = visible.length > 0;
+      if (!visible.includes(activeRecord)) {
+        const selected = visible.find((record) => record.option.value === selectedValue);
+        setActiveRecord(selected || visible[0] || null, false);
+      }
+    }
+
+    function close(returnFocus = false) {
+      if (popup.hidden) return;
+      popup.hidden = true;
+      trigger.setAttribute("aria-expanded", "false");
+      search.value = "";
+      setActiveRecord(null, false);
+      if (state.openParameterPicker === api) state.openParameterPicker = null;
+      if (returnFocus) trigger.focus();
+    }
+
+    function open(initialQuery = "", edge = "selected") {
+      if (state.openParameterPicker && state.openParameterPicker !== api) {
+        state.openParameterPicker.close(false);
+      }
+      popup.hidden = false;
+      trigger.setAttribute("aria-expanded", "true");
+      search.value = initialQuery;
+      filterOptions();
+      const visible = visibleRecords();
+      if (edge === "last") {
+        setActiveRecord(visible[visible.length - 1] || null, false);
+      } else if (edge === "first") {
+        setActiveRecord(visible[0] || null, false);
+      } else {
+        setActiveRecord(
+          visible.find((record) => record.option.value === selectedValue) || visible[0] || null,
+          false
+        );
+      }
+      state.openParameterPicker = api;
+      window.requestAnimationFrame(() => {
+        search.focus();
+        search.setSelectionRange(search.value.length, search.value.length);
+      });
+    }
+
+    function choose(value) {
+      const selected = getParameterOption(value);
+      if (!selected) return;
+      const previous = selectedValue;
+      selectedValue = selected.value;
+      renderSelection();
+      close(false);
+      if (selectedValue !== previous) {
+        onSelectionChange(selectedValue, previous);
+      } else {
+        trigger.focus();
+      }
+    }
+
+    function moveActive(step) {
+      const visible = visibleRecords();
+      if (!visible.length) return;
+      const currentIndex = visible.indexOf(activeRecord);
+      const nextIndex = currentIndex < 0
+        ? (step > 0 ? 0 : visible.length - 1)
+        : (currentIndex + step + visible.length) % visible.length;
+      setActiveRecord(visible[nextIndex]);
+    }
+
+    trigger.addEventListener("click", () => {
+      if (popup.hidden) open();
+      else close(true);
+    });
+
+    trigger.addEventListener("keydown", (event) => {
+      if (event.key === "ArrowDown") {
+        event.preventDefault();
+        open("", "selected");
+      } else if (event.key === "ArrowUp") {
+        event.preventDefault();
+        open("", "last");
+      } else if (
+        event.key.length === 1
+        && event.key !== " "
+        && !event.altKey
+        && !event.ctrlKey
+        && !event.metaKey
+      ) {
+        event.preventDefault();
+        open(event.key, "first");
+      }
+    });
+
+    search.addEventListener("input", filterOptions);
+    search.addEventListener("keydown", (event) => {
+      if (event.key === "ArrowDown") {
+        event.preventDefault();
+        moveActive(1);
+      } else if (event.key === "ArrowUp") {
+        event.preventDefault();
+        moveActive(-1);
+      } else if (event.key === "Home") {
+        event.preventDefault();
+        setActiveRecord(visibleRecords()[0] || null);
+      } else if (event.key === "End") {
+        event.preventDefault();
+        const visible = visibleRecords();
+        setActiveRecord(visible[visible.length - 1] || null);
+      } else if (event.key === "Enter" && activeRecord) {
+        event.preventDefault();
+        choose(activeRecord.option.value);
+      } else if (event.key === "Escape") {
+        event.preventDefault();
+        close(true);
+      } else if (event.key === "Tab") {
+        close(false);
+      }
+    });
+
+    optionRecords.forEach((record) => {
+      record.element.addEventListener("mousedown", (event) => {
+        event.preventDefault();
+      });
+      record.element.addEventListener("click", () => choose(record.option.value));
+      record.element.addEventListener("mousemove", () => setActiveRecord(record, false));
+    });
+
+    field.addEventListener("focusout", () => {
+      window.setTimeout(() => {
+        if (!field.contains(document.activeElement)) close(false);
+      }, 0);
+    });
+
+    const api = {
+      field,
+      button: trigger,
+      wrapper: picker,
+      close,
+      open,
+      getValue: () => selectedValue
+    };
+
+    renderSelection();
+    return api;
+  }
+
+  function clearParameterRowError(row) {
+    const controls = row.querySelectorAll(
+      ".qr-parameter-picker__trigger, .qr-custom-parameter-input, .qr-parameter-value"
+    );
+    controls.forEach((control) => control.removeAttribute("aria-invalid"));
+    const error = row.querySelector(".qr-parameter-error");
+    error.textContent = "";
+    error.hidden = true;
+  }
+
+  function setParameterRowError(row, controls, message) {
+    controls.forEach((control) => control.setAttribute("aria-invalid", "true"));
+    const error = row.querySelector(".qr-parameter-error");
+    error.textContent = message;
+    error.hidden = false;
+  }
+
+  function addParameterRow(name = DEFAULT_PARAMETER_NAME, value = "", moveFocus = false) {
+    if (refs.parameterList.children.length >= MAX_PARAMETER_ROWS) {
+      announce("You can add up to 20 tracking details.");
+      return;
+    }
+
+    const id = ++state.parameterId;
+    const trimmedName = String(name || "").trim();
+    const initialOption = getParameterOption(trimmedName);
+    const initialSelection = initialOption ? initialOption.value : (trimmedName ? CUSTOM_PARAMETER_VALUE : DEFAULT_PARAMETER_NAME);
+    const initialCustomName = initialSelection === CUSTOM_PARAMETER_VALUE ? trimmedName : "";
+
+    const row = document.createElement("div");
+    row.className = "qr-parameter-row";
+    row.dataset.parameterId = String(id);
+    row.dataset.parameterSelection = initialSelection;
+    row.dataset.parameterEngaged = value.trim() || initialCustomName ? "true" : "false";
+    row.setAttribute("role", "group");
+
+    const error = document.createElement("p");
+    error.id = `parameter-error-${id}`;
+    error.className = "app-error qr-parameter-error";
+    error.setAttribute("role", "alert");
+    error.hidden = true;
+
+    const customField = document.createElement("div");
+    customField.className = "qr-custom-parameter-field";
+    customField.hidden = initialSelection !== CUSTOM_PARAMETER_VALUE;
+
+    const customInput = document.createElement("input");
+    customInput.id = `custom-parameter-name-${id}`;
+    customInput.className = "qr-custom-parameter-input";
+    customInput.type = "text";
+    customInput.value = initialCustomName;
+    customInput.maxLength = MAX_CUSTOM_PARAMETER_NAME_LENGTH;
+    customInput.autocapitalize = "none";
+    customInput.spellcheck = false;
+    customInput.setAttribute("aria-describedby", error.id);
+    customField.append(makeLabel("Your own name", customInput));
+
+    const valueSelect = document.createElement("select");
+    valueSelect.id = `parameter-value-choice-${id}`;
+    valueSelect.className = "qr-parameter-value-choice";
+    valueSelect.setAttribute("aria-describedby", error.id);
+
+    const valueInput = document.createElement("input");
+    valueInput.id = `parameter-value-${id}`;
+    valueInput.className = "qr-parameter-value";
+    valueInput.type = "text";
+    valueInput.value = value;
+    valueInput.placeholder = getParameterPlaceholder(initialSelection);
+    valueInput.autocapitalize = "none";
+    valueInput.spellcheck = false;
+    valueInput.setAttribute("aria-describedby", error.id);
+
+    const selectLabel = makeLabel("Value", valueSelect);
+    const inputLabel = makeLabel("Value", valueInput);
+
+    // Names with a short list of common answers get a dropdown. "Something else" opens the text box.
+    function syncValueControls(selection, initialText = "") {
+      const choices = VALUE_OPTIONS[selection];
+      selectLabel.hidden = !choices;
+      valueSelect.textContent = "";
+      if (!choices) {
+        inputLabel.hidden = false;
+        inputLabel.firstChild.textContent = "Value";
+        return;
+      }
+      valueSelect.append(new Option("Choose one", ""));
+      choices.forEach(([choice, title]) => valueSelect.append(new Option(title, choice)));
+      valueSelect.append(new Option("Something else", OTHER_VALUE));
+      const known = choices.some(([choice]) => choice === initialText);
+      valueSelect.value = known ? initialText : (initialText ? OTHER_VALUE : "");
+      inputLabel.hidden = valueSelect.value !== OTHER_VALUE;
+      inputLabel.firstChild.textContent = "Your own value";
+    }
+
+    const valueField = document.createElement("div");
+    valueField.className = "qr-parameter-value-field";
+    valueField.append(selectLabel, inputLabel);
+
+    let picker;
+    picker = createParameterPicker(id, initialSelection, error.id, (selection) => {
+      row.dataset.parameterSelection = selection;
+      row.dataset.parameterEngaged = "true";
+      customInput.value = "";
+      customField.hidden = selection !== CUSTOM_PARAMETER_VALUE;
+      valueInput.value = "";
+      syncValueControls(selection);
+      valueInput.placeholder = getParameterPlaceholder(selection);
+      clearParameterRowError(row);
+      scheduleUpdate();
+      window.requestAnimationFrame(() => {
+        if (selection === CUSTOM_PARAMETER_VALUE) customInput.focus();
+        else picker.button.focus();
+      });
+    });
+    row.parameterPicker = picker;
+
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.className = "action-button is-danger qr-remove-parameter";
+    remove.dataset.icon = "trash";
+    remove.setAttribute("aria-label", "Remove tracking detail");
+    remove.title = "Remove tracking detail";
+    remove.addEventListener("pointerdown", cancelScheduledUpdate);
+    remove.addEventListener("click", () => {
+      if (state.openParameterPicker === picker) picker.close(false);
+      row.remove();
+      renumberParameterRows();
+      void updatePreview();
+      announce("Tracking detail removed.");
+      refs.addParameter.focus();
+    });
+
+    row.append(
+      picker.field,
+      valueField,
+      remove,
+      customField,
+      error
+    );
+
+    syncValueControls(initialSelection, value);
+    valueInput.value = VALUE_OPTIONS[initialSelection] && valueSelect.value !== OTHER_VALUE ? "" : value;
+
+    valueInput.addEventListener("input", () => {
+      row.dataset.parameterEngaged = "true";
+      scheduleUpdate();
+    });
+    valueSelect.addEventListener("change", () => {
+      row.dataset.parameterEngaged = "true";
+      inputLabel.hidden = valueSelect.value !== OTHER_VALUE;
+      if (valueSelect.value === OTHER_VALUE) valueInput.focus();
+      scheduleUpdate();
+    });
+    customInput.addEventListener("input", () => {
+      row.dataset.parameterEngaged = "true";
+      scheduleUpdate();
+    });
+
+    refs.parameterList.append(row);
+    renumberParameterRows();
+    refs.addParameter.disabled = refs.parameterList.children.length >= MAX_PARAMETER_ROWS;
+
+    if (moveFocus) picker.button.focus();
+  }
+
+  function renumberParameterRows() {
+    const rows = [...refs.parameterList.querySelectorAll(".qr-parameter-row")];
+    rows.forEach((row, index) => {
+      const number = index + 1;
+      row.setAttribute("aria-label", `Tracking detail ${number}`);
+      row.querySelector(".qr-remove-parameter").setAttribute("aria-label", `Remove tracking detail ${number}`);
+    });
+    refs.addParameter.disabled = rows.length >= MAX_PARAMETER_ROWS;
+  }
+
+  // The Logo dropdown starts with the backup list. When the Brand Center list arrives, it takes over.
+  function renderLogoOptions() {
+    const chosen = refs.logoChoice.value;
+    refs.logoChoice.querySelectorAll("option[data-brand]").forEach((option) => option.remove());
+    const upload = refs.logoChoice.querySelector(`option[value="${LOGO_UPLOAD_VALUE}"]`);
+    [...state.logos]
+      .sort((a, b) => a.name.localeCompare(b.name))
+      .forEach(({ value, name }) => {
+        const option = new Option(name, value);
+        option.dataset.brand = "true";
+        refs.logoChoice.insertBefore(option, upload);
+      });
+    if (chosen && refs.logoChoice.querySelector(`option[value="${CSS.escape(chosen)}"]`)) {
+      refs.logoChoice.value = chosen;
+    } else if (chosen && chosen !== LOGO_UPLOAD_VALUE) {
+      // The chosen brand is no longer listed.
+      refs.logoChoice.value = "";
+      state.imageToken += 1;
+      clearImageChoice();
+      scheduleUpdate();
+    }
+  }
+
+  async function loadBrandLogos() {
+    state.logos = await window.MarinLinksPresets.loadLogos();
+    renderLogoOptions();
+  }
+
+  function fillPresetLists() {
+    const { agencies, campaigns } = window.MarinLinksPresets;
+    agencies.forEach(({ value, name }) => refs.agency.append(new Option(name, value)));
+    // Only Brand Center logos for now. The upload code stays, switched off.
+    const upload = refs.logoChoice.querySelector(`option[value="${LOGO_UPLOAD_VALUE}"]`);
+    if (!FEATURES.logoUpload) {
+      upload.remove();
+    } else {
+      refs.logoHelp.textContent = "Shown in the middle of the QR code. Pick a Marin logo or upload a PNG, JPG, or WebP file.";
+    }
+    renderLogoOptions();
+    const startNew = refs.campaignChoice.querySelector(`option[value="${NEW_CAMPAIGN_VALUE}"]`);
+    campaigns.forEach(({ value, name }) => {
+      refs.campaignChoice.insertBefore(new Option(name, value), startNew);
+    });
+  }
+
+  // Lowercase words joined by underscores, so "Fall Flu 2026" and "fall_flu_2026" count together.
+  function normalizeCampaign(text) {
+    return text.trim().toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+  }
+
+  function collectParameters() {
+    const parameters = [];
+    const seenNames = new Set();
+    let valid = true;
+
+    const channel = refs.channel.value;
+    if (channel) {
+      parameters.push({ name: "utm_medium", value: channel });
+      seenNames.add("utm_medium");
+    }
+    const campaignChoice = refs.campaignChoice.value;
+    const campaign = campaignChoice === NEW_CAMPAIGN_VALUE
+      ? normalizeCampaign(refs.campaign.value)
+      : campaignChoice;
+    if (campaign) {
+      parameters.push({ name: "utm_campaign", value: campaign });
+      seenNames.add("utm_campaign");
+    }
+    if (refs.agency.value) {
+      parameters.push({ name: "agency", value: refs.agency.value });
+      seenNames.add("agency");
+    }
+
+    refs.parameterList.querySelectorAll(".qr-parameter-row").forEach((row) => {
+      const selection = row.dataset.parameterSelection || DEFAULT_PARAMETER_NAME;
+      const customInput = row.querySelector(".qr-custom-parameter-input");
+      const valueInput = row.querySelector(".qr-parameter-value");
+      const valueSelect = row.querySelector(".qr-parameter-value-choice");
+      const trigger = row.querySelector(".qr-parameter-picker__trigger");
+      const customName = customInput.value.trim();
+      const choosing = VALUE_OPTIONS[selection] && valueSelect.value !== OTHER_VALUE;
+      const value = (choosing ? valueSelect.value : valueInput.value).trim();
+      const engaged = row.dataset.parameterEngaged === "true" || Boolean(customName || value);
+
+      clearParameterRowError(row);
+      if (!engaged && !customName && !value) return;
+
+      let name = selection;
+      if (selection === CUSTOM_PARAMETER_VALUE) {
+        name = customName;
+        if (!name) {
+          setParameterRowError(row, [customInput], "Type a name for this tracking detail.");
+          valid = false;
+          return;
+        }
+        if (
+          name.length > MAX_CUSTOM_PARAMETER_NAME_LENGTH
+          || !CUSTOM_PARAMETER_NAME_PATTERN.test(name)
+        ) {
+          setParameterRowError(
+            row,
+            [customInput],
+            "Use letters, numbers, underscores, hyphens, periods, or tildes."
+          );
+          valid = false;
+          return;
+        }
+      }
+
+      if (!value) {
+        setParameterRowError(row, [choosing ? valueSelect : valueInput], "Add a value for this tracking detail.");
+        valid = false;
+        return;
+      }
+
+      if (seenNames.has(name)) {
+        setParameterRowError(row, [trigger, customInput], "Use each tracking detail name only once.");
+        valid = false;
+        return;
+      }
+
+      seenNames.add(name);
+      parameters.push({ name, value });
+    });
+
+    return { valid, parameters };
+  }
+
+  function showEmpty(message) {
+    state.finalUrl = "";
+    state.renderResult = null;
+    refs.previewEmpty.textContent = message;
+    refs.previewEmpty.hidden = false;
+    refs.previewReady.hidden = true;
+    refs.canvas.removeAttribute("data-qr-ready");
+    refs.canvas.removeAttribute("data-final-url");
+    refs.canvas.removeAttribute("data-qr-version");
+    refs.canvas.removeAttribute("data-qr-module-count");
+    refs.canvas.removeAttribute("data-logo-image-width-modules");
+    refs.canvas.removeAttribute("data-logo-image-height-modules");
+    refs.canvas.removeAttribute("data-logo-backing-width-modules");
+    refs.canvas.removeAttribute("data-logo-backing-height-modules");
+    refs.canvas.removeAttribute("data-logo-safety-usage");
+    refs.canvas.removeAttribute("data-transparent-background");
+    refs.canvasFrame.removeAttribute("data-transparent");
+    refs.finalUrl.value = "";
+    refs.finalUrl.textContent = "";
+    refs.copyLink.dataset.copyValue = "";
+    setExportActionsEnabled(false);
+  }
+
+  function buildQrModel(finalUrl) {
+    const qr = new window.MarinQrCode.QRCode(
+      -1,
+      window.MarinQrCode.QRErrorCorrectLevel.H
+    );
+    qr.addData(finalUrl);
+    qr.make();
+    return window.MarinQrSafety.createModel(
+      qr,
+      window.MarinQrCode.QRErrorCorrectLevel.H
+    );
+  }
+
+  function renderQr(model, color, logoPlan = null, transparentBackground = false) {
+    window.MarinQrSafety.render(
+      refs.canvas,
+      model,
+      color,
+      state.logo?.prepared || null,
+      logoPlan,
+      TARGET_PNG_SIZE,
+      { transparentBackground }
+    );
+
+    refs.canvas.setAttribute("aria-label", "QR code for the final link shown below.");
+    refs.canvas.dataset.transparentBackground = transparentBackground ? "true" : "false";
+    refs.canvasFrame.dataset.transparent = transparentBackground ? "true" : "false";
+    refs.canvas.dataset.qrReady = "true";
+    refs.canvas.dataset.qrVersion = String(model.typeNumber);
+    refs.canvas.dataset.qrModuleCount = String(model.moduleCount);
+    if (logoPlan) {
+      refs.canvas.dataset.logoImageWidthModules = logoPlan.imageWidth.toFixed(2);
+      refs.canvas.dataset.logoImageHeightModules = logoPlan.imageHeight.toFixed(2);
+      refs.canvas.dataset.logoBackingWidthModules = logoPlan.backingWidth.toFixed(2);
+      refs.canvas.dataset.logoBackingHeightModules = logoPlan.backingHeight.toFixed(2);
+      refs.canvas.dataset.logoSafetyUsage = logoPlan.verification.maximumUsage.toFixed(3);
+    } else {
+      refs.canvas.removeAttribute("data-logo-image-width-modules");
+      refs.canvas.removeAttribute("data-logo-image-height-modules");
+      refs.canvas.removeAttribute("data-logo-backing-width-modules");
+      refs.canvas.removeAttribute("data-logo-backing-height-modules");
+      refs.canvas.removeAttribute("data-logo-safety-usage");
+    }
+  }
+
+  async function updatePreview() {
+    cancelScheduledUpdate();
+    const token = ++state.generationToken;
+    state.generating = true;
+    setExportActionsEnabled(false);
+
+    try {
+      const destination = parseDestination(refs.destination.value);
+      if (destination.error) {
+        setFieldError(refs.destination, refs.destinationError, destination.error);
+      } else {
+        clearFieldError(refs.destination, refs.destinationError);
+      }
+
+      const qr = isQrMode();
+      const color = qr ? validateColor() : "#000000";
+      const transparentBackground = qr && refs.transparentBackground.checked;
+      const parameterResult = collectParameters();
+
+      if (destination.empty) {
+        showEmpty(emptyMessage());
+        return;
+      }
+
+      if (destination.error || !color || !parameterResult.valid) {
+        showEmpty(qr ? "Fix the fields to make a QR code." : "Fix the fields to make a link.");
+        return;
+      }
+
+      const final = new URL(destination.url.href);
+      parameterResult.parameters.forEach(({ name, value }) => {
+        final.searchParams.append(name, value);
+      });
+      const finalUrl = buildTrackedUrl(final.href);
+
+      if (!qr) {
+        state.finalUrl = finalUrl;
+        state.renderResult = null;
+        showLink(finalUrl);
+        return;
+      }
+
+      showEmpty(state.logo ? "Checking the logo…" : "Making your QR code…");
+      refs.previewCard.setAttribute("aria-busy", "true");
+
+      let model;
+      let logoPlan = null;
+      try {
+        model = buildQrModel(finalUrl);
+        if (state.logo) {
+          clearFieldError(refs.logoChoice, refs.imageError);
+          logoPlan = await window.MarinQrSafety.findLargestLogoPlan(
+            model,
+            state.logo.prepared,
+            color,
+            { shouldCancel: () => token !== state.generationToken }
+          );
+          if (token !== state.generationToken) return;
+          if (!logoPlan) {
+            setFieldError(
+              refs.imageInput,
+              refs.imageError,
+              "This logo does not work well with this QR code. Try a shorter link or another logo."
+            );
+            showEmpty("Try another logo to make this QR code.");
+            return;
+          }
+        }
+
+        renderQr(model, color, logoPlan, transparentBackground);
+      } catch (error) {
+        if (error?.name === "AbortError") return;
+        console.error(error);
+        const message = /overflow|code length|bad rs block/i.test(String(error))
+          ? "This link is too long for a QR code. Shorten the link or remove tracking details."
+          : "Marin Links could not make this code. Check the link and try again.";
+        setFieldError(refs.destination, refs.destinationError, message);
+        showEmpty("Fix the web address to make a QR code.");
+        return;
+      }
+
+      if (token !== state.generationToken) return;
+      state.finalUrl = finalUrl;
+      state.renderResult = Object.freeze({
+        model,
+        color,
+        preparedImage: state.logo?.prepared || null,
+        logoPlan,
+        transparentBackground,
+        finalUrl
+      });
+      refs.canvas.dataset.finalUrl = finalUrl;
+      showLink(finalUrl);
+    } finally {
+      if (token === state.generationToken) {
+        state.generating = false;
+        refs.previewCard.removeAttribute("aria-busy");
+        setExportActionsEnabled(Boolean(state.finalUrl));
+      }
+    }
+  }
+
+  function showLink(finalUrl) {
+    refs.finalUrl.value = finalUrl;
+    refs.finalUrl.textContent = finalUrl;
+    refs.copyLink.dataset.copyValue = finalUrl;
+    refs.previewEmpty.hidden = true;
+    refs.previewReady.hidden = false;
+  }
+
+  function scheduleUpdate() {
+    cancelScheduledUpdate();
+    state.generationToken += 1;
+    state.generating = false;
+    refs.previewCard.removeAttribute("aria-busy");
+    showEmpty("Checking your changes…");
+    state.updateTimer = window.setTimeout(() => {
+      state.updateTimer = null;
+      void updatePreview();
+    }, 300);
+  }
+
+  function canvasToBlob() {
+    return new Promise((resolve, reject) => {
+      refs.canvas.toBlob((blob) => {
+        if (blob) resolve(blob);
+        else reject(new Error("The PNG file could not be made."));
+      }, "image/png");
+    });
+  }
+
+  function svgToBlob() {
+    const result = state.renderResult;
+    if (!result) throw new Error("The SVG file could not be made.");
+    const svg = window.MarinQrSafety.toSvg(
+      result.model,
+      result.color,
+      result.preparedImage,
+      result.logoPlan,
+      {
+        transparentBackground: result.transparentBackground,
+        finalUrl: result.finalUrl
+      }
+    );
+    return new Blob([svg], { type: "image/svg+xml;charset=utf-8" });
+  }
+
+  function saveBlob(blob, filename) {
+    const objectUrl = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = objectUrl;
+    link.download = filename;
+    document.body.append(link);
+    link.click();
+    link.remove();
+    window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
+  }
+
+  // One button saves the file type chosen next to it.
+  async function download() {
+    if (!state.finalUrl) return;
+    const format = refs.downloadFormat.value === "svg" ? "svg" : "png";
+    refs.download.setAttribute("aria-busy", "true");
+    refs.download.disabled = true;
+
+    try {
+      saveBlob(format === "svg" ? svgToBlob() : await canvasToBlob(), `marin-links.${format}`);
+      announce(`${format.toUpperCase()} downloaded.`);
+    } catch (error) {
+      console.error(error);
+      announce(`The ${format.toUpperCase()} could not be downloaded. Try again.`);
+    } finally {
+      refs.download.removeAttribute("aria-busy");
+      refs.download.disabled = !exportsAreReady();
+    }
+  }
+
+  function readFileAsDataUrl(file) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.addEventListener("load", () => resolve(reader.result), { once: true });
+      reader.addEventListener("error", () => reject(new Error("The image could not be read.")), { once: true });
+      reader.readAsDataURL(file);
+    });
+  }
+
+  function loadImage(dataUrl) {
+    return new Promise((resolve, reject) => {
+      const image = new Image();
+      // Brand Center logos come from another address. This lets the page read their pixels.
+      image.crossOrigin = "anonymous";
+      image.decoding = "async";
+      image.addEventListener("load", () => resolve(image), { once: true });
+      image.addEventListener("error", () => reject(new Error("The image could not be opened.")), { once: true });
+      image.src = dataUrl;
+    });
+  }
+
+  function clearImageChoice() {
+    state.logo = null;
+    refs.imageInput.value = "";
+    refs.imagePreview.removeAttribute("src");
+    refs.imageName.textContent = "";
+    refs.imageChoice.hidden = true;
+  }
+
+  async function handleImageChoice() {
+    const file = refs.imageInput.files?.[0];
+    if (!file) return;
+
+    const token = ++state.imageToken;
+    state.generationToken += 1;
+    state.generating = false;
+    refs.previewCard.removeAttribute("aria-busy");
+    clearFieldError(refs.logoChoice, refs.imageError);
+    setExportActionsEnabled(false);
+    showEmpty("Reading the logo…");
+    refs.previewCard.setAttribute("aria-busy", "true");
+
+    if (!ALLOWED_IMAGE_TYPES.has(file.type)) {
+      clearImageChoice();
+      setFieldError(refs.logoChoice, refs.imageError, "Choose a PNG, JPG, or WebP image.");
+      void updatePreview();
+      return;
+    }
+
+    if (file.size > MAX_IMAGE_BYTES) {
+      clearImageChoice();
+      setFieldError(refs.logoChoice, refs.imageError, "Choose an image smaller than 2 MB.");
+      void updatePreview();
+      return;
+    }
+
+    refs.imageInput.setAttribute("aria-busy", "true");
+    try {
+      const dataUrl = await readFileAsDataUrl(file);
+      const image = await loadImage(dataUrl);
+      if (token !== state.imageToken) return;
+
+      if (image.naturalWidth > MAX_IMAGE_SIDE || image.naturalHeight > MAX_IMAGE_SIDE) {
+        clearImageChoice();
+        setFieldError(refs.logoChoice, refs.imageError, "Choose an image that is no more than 4,096 pixels wide or tall.");
+        void updatePreview();
+        return;
+      }
+
+      const prepared = window.MarinQrImage.prepare(image);
+      state.logo = { image, prepared, dataUrl, name: file.name };
+      refs.imagePreview.src = dataUrl;
+      refs.imageName.textContent = file.name;
+      refs.imageChoice.hidden = false;
+      clearFieldError(refs.logoChoice, refs.imageError);
+      void updatePreview();
+      announce("Logo added.");
+    } catch (error) {
+      console.error(error);
+      if (token !== state.imageToken) return;
+      clearImageChoice();
+      const message = /blank|visible size/i.test(String(error))
+        ? "Choose an image with something visible in it."
+        : "This image could not be opened. Choose another file.";
+      setFieldError(refs.logoChoice, refs.imageError, message);
+      void updatePreview();
+    } finally {
+      if (token === state.imageToken) refs.imageInput.removeAttribute("aria-busy");
+    }
+  }
+
+  function removeImage() {
+    state.imageToken += 1;
+    state.generationToken += 1;
+    clearImageChoice();
+    clearFieldError(refs.logoChoice, refs.imageError);
+    refs.logoChoice.value = "";
+    refs.logoUploadField.hidden = true;
+    void updatePreview();
+    announce("Logo removed.");
+    refs.logoChoice.focus();
+  }
+
+  // A Marin logo from the Brand Center. It follows the same checks as an upload.
+  async function useBrandLogo(entry) {
+    const token = ++state.imageToken;
+    state.generationToken += 1;
+    state.generating = false;
+    refs.previewCard.removeAttribute("aria-busy");
+    clearFieldError(refs.logoChoice, refs.imageError);
+    setExportActionsEnabled(false);
+    showEmpty("Reading the logo…");
+    refs.previewCard.setAttribute("aria-busy", "true");
+
+    try {
+      const image = await loadImage(entry.file);
+      if (token !== state.imageToken) return;
+      state.logo = { image, prepared: window.MarinQrImage.prepare(image), dataUrl: entry.file, name: entry.name };
+      refs.imagePreview.src = entry.file;
+      refs.imageName.textContent = entry.name;
+      refs.imageChoice.hidden = false;
+      void updatePreview();
+      announce("Logo added.");
+    } catch (error) {
+      console.error(error);
+      if (token !== state.imageToken) return;
+      clearImageChoice();
+      setFieldError(refs.logoChoice, refs.imageError, "This logo could not be loaded. Check your connection or choose another one.");
+      void updatePreview();
+    }
+  }
+
+  function handleLogoChoice() {
+    const choice = refs.logoChoice.value;
+    refs.logoUploadField.hidden = choice !== LOGO_UPLOAD_VALUE;
+    clearFieldError(refs.logoChoice, refs.imageError);
+
+    if (choice === LOGO_UPLOAD_VALUE) {
+      // Wait for a file. Until then the code has no logo.
+      state.imageToken += 1;
+      clearImageChoice();
+      scheduleUpdate();
+      refs.uploadLogo.focus();
+      return;
+    }
+    if (!choice) {
+      state.imageToken += 1;
+      clearImageChoice();
+      scheduleUpdate();
+      return;
+    }
+    const entry = state.logos.find((logo) => logo.value === choice);
+    if (entry) void useBrandLogo(entry);
+  }
+
+  // The browser can bring back form choices after a refresh or Back. Read them, so the page matches what is shown.
+  function syncFromForm() {
+    state.mode = refs.outputs.find((radio) => radio.checked)?.value === "qr" ? "qr" : "link";
+    applyMode();
+    refs.campaignField.hidden = refs.campaignChoice.value !== NEW_CAMPAIGN_VALUE;
+
+    // A chosen file cannot be restored, so an upload with no file goes back to None.
+    if (refs.logoChoice.value === LOGO_UPLOAD_VALUE && !state.logo) refs.logoChoice.value = "";
+    refs.logoUploadField.hidden = refs.logoChoice.value !== LOGO_UPLOAD_VALUE;
+    if (refs.logoChoice.value && refs.logoChoice.value !== LOGO_UPLOAD_VALUE && !state.logo) {
+      handleLogoChoice();
+    }
+
+    showEmpty(emptyMessage());
+    if (refs.destination.value.trim()) void updatePreview();
+  }
+
+  function resetForm() {
+    cancelScheduledUpdate();
+    state.imageToken += 1;
+    state.generationToken += 1;
+    state.generating = false;
+    refs.previewCard.removeAttribute("aria-busy");
+
+    refs.form.reset();
+    clearFieldError(refs.destination, refs.destinationError);
+    state.mode = "link";
+    applyMode();
+
+    refs.campaignField.hidden = true;
+    state.openParameterPicker?.close(false);
+    refs.parameterList.textContent = "";
+    refs.addParameter.disabled = false;
+
+    clearImageChoice();
+    clearFieldError(refs.logoChoice, refs.imageError);
+    refs.logoUploadField.hidden = true;
+
+    showEmpty(emptyMessage());
+    announce("Form reset.");
+    refs.destination.focus();
+  }
+
+  function bindEvents() {
+    refs.form.addEventListener("submit", (event) => {
+      event.preventDefault();
+      void updatePreview();
+    });
+
+    refs.destination.addEventListener("input", scheduleUpdate);
+    document.querySelectorAll('input[name="background"]').forEach((radio) => {
+      radio.addEventListener("change", scheduleUpdate);
+    });
+
+    refs.color.addEventListener("input", () => {
+      refs.colorText.value = refs.color.value.toLowerCase();
+      clearFieldError(refs.colorText, refs.colorError);
+      scheduleUpdate();
+    });
+
+    refs.colorText.addEventListener("input", () => {
+      const color = normalizeHexColor(refs.colorText.value);
+      if (color) refs.color.value = color;
+      scheduleUpdate();
+    });
+
+    refs.colorText.addEventListener("blur", () => {
+      const color = normalizeHexColor(refs.colorText.value);
+      if (color) refs.colorText.value = color;
+    });
+
+    refs.channel.addEventListener("change", scheduleUpdate);
+    refs.campaign.addEventListener("input", scheduleUpdate);
+    refs.agency.addEventListener("change", scheduleUpdate);
+    refs.campaignChoice.addEventListener("change", () => {
+      const choice = refs.campaignChoice.value;
+      refs.campaignField.hidden = choice !== NEW_CAMPAIGN_VALUE;
+      if (choice === NEW_CAMPAIGN_VALUE) refs.campaign.focus();
+      // A saved campaign can also fill in its usual channel and agency.
+      const preset = window.MarinLinksPresets.campaigns.find((entry) => entry.value === choice);
+      if (preset?.channel) refs.channel.value = preset.channel;
+      if (preset?.agency) refs.agency.value = preset.agency;
+      scheduleUpdate();
+    });
+    refs.addParameter.addEventListener("pointerdown", cancelScheduledUpdate);
+    refs.addParameter.addEventListener("click", () => {
+      addParameterRow(DEFAULT_PARAMETER_NAME, "", true);
+      void updatePreview();
+    });
+
+    document.addEventListener("pointerdown", (event) => {
+      const openPicker = state.openParameterPicker;
+      if (openPicker && !openPicker.wrapper.contains(event.target)) {
+        openPicker.close(false);
+      }
+    });
+    refs.logoChoice.addEventListener("change", handleLogoChoice);
+    refs.uploadLogo.addEventListener("click", () => refs.imageInput.click());
+    refs.imageInput.addEventListener("change", () => handleImageChoice());
+    refs.removeImage.addEventListener("click", () => removeImage());
+    refs.outputs.forEach((radio) => {
+      radio.addEventListener("change", () => {
+        if (!radio.checked) return;
+        state.mode = radio.value;
+        applyMode();
+        void updatePreview();
+      });
+    });
+    refs.copyLink.addEventListener("pointerdown", cancelScheduledUpdate);
+    refs.resetForm.addEventListener("click", resetForm);
+    refs.download.addEventListener("click", download);
+  }
+
+  function start() {
+    refs = {
+      form: byId("qr-form"),
+      destination: byId("destination-url"),
+      destinationError: byId("destination-error"),
+      destinationMode: byId("destination-mode"),
+      allowedWebsitesHelp: byId("allowed-websites-help"),
+      parameterList: byId("parameter-list"),
+      addParameter: byId("add-parameter"),
+      channel: byId("tracking-channel"),
+      agency: byId("tracking-agency"),
+      campaignChoice: byId("tracking-campaign-choice"),
+      campaignField: byId("tracking-campaign-field"),
+      campaign: byId("tracking-campaign"),
+      colorField: byId("qr-color-field"),
+      backgroundField: byId("background-field"),
+      color: byId("qr-color"),
+      colorText: byId("qr-color-text"),
+      colorError: byId("color-error"),
+      transparentBackground: byId("background-transparent"),
+      imageInput: byId("center-image"),
+      imageError: byId("image-error"),
+      imageChoice: byId("image-choice"),
+      imagePreview: byId("image-preview"),
+      imageName: byId("image-name"),
+      removeImage: byId("remove-image"),
+      logoChoice: byId("logo-choice"),
+      logoHelp: byId("image-help"),
+      logoUploadField: byId("logo-upload-field"),
+      uploadLogo: byId("upload-logo"),
+      outputs: [...document.querySelectorAll('input[name="output"]')],
+      designSection: byId("design-section"),
+      scanNote: byId("scan-note"),
+      copyLink: byId("copy-link-primary"),
+      resetForm: byId("reset-form"),
+      previewCard: byId("qr-preview-card"),
+      previewEmpty: byId("preview-empty"),
+      previewReady: byId("preview-ready"),
+      canvasFrame: byId("qr-canvas-frame"),
+      canvas: byId("qr-canvas"),
+      finalUrl: byId("final-url"),
+      downloadGroup: byId("download-group"),
+      downloadFormat: byId("download-format"),
+      download: byId("download")
+    };
+
+    const configReady = Array.isArray(window.MarinQrAuthorizedDomains)
+      && window.MarinQrAuthorizedDomains.length > 0;
+    const libraryReady = Boolean(
+      window.MarinQrCode?.QRCode
+      && window.MarinQrCode?.QRErrorCorrectLevel
+      && window.MarinQrCode?.QRRSBlock
+      && window.MarinQrImage?.prepare
+      && window.MarinLinksTracker?.endpoint
+      && window.MarinLinksPresets?.agencies?.length
+      && window.MarinQrSafety?.createModel
+      && window.MarinQrSafety?.findLargestLogoPlan
+      && window.MarinQrSafety?.render
+      && window.MarinQrSafety?.toSvg
+    );
+
+    if (!configReady || !libraryReady) {
+      console.error("Marin Links could not load its local settings or QR library.");
+      showEmpty("Marin Links could not start. Reload the page.");
+      refs.form.querySelectorAll("input, button").forEach((control) => {
+        control.disabled = true;
+      });
+      return;
+    }
+
+    refs.colorField.hidden = !FEATURES.qrColorPicker;
+    refs.backgroundField.hidden = !FEATURES.backgroundOption;
+    refs.destinationMode.hidden = !allowAnyHttpsDestination;
+    refs.allowedWebsitesHelp.hidden = allowAnyHttpsDestination;
+    if (allowAnyHttpsDestination) {
+      refs.destination.setAttribute("aria-describedby", "destination-mode destination-error");
+    }
+    bindEvents();
+    fillPresetLists();
+    syncFromForm();
+    void loadBrandLogos();
+    window.addEventListener("pageshow", (event) => {
+      if (event.persisted) syncFromForm();
+    });
+  }
+
+  if (document.readyState === "complete") {
+    start();
+  } else {
+    document.addEventListener("DOMContentLoaded", start, { once: true });
+  }
+})();

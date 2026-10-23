@@ -1,0 +1,451 @@
+/*
+ * Marin Links tabs and Stats
+ * The Stats tab reads the County tracker's public, read-only API and draws
+ * charts with the local Chart.js bundle. Nothing about the person using this
+ * page is sent.
+ */
+
+(() => {
+  "use strict";
+
+  const COLOR = "#0777cf";
+  const COLOR_SECOND = "#e5b53b";
+  const TOP_LIMIT = 10;
+  const SUPPRESSED_MESSAGE = "Too few visits to show.";
+  const EMPTY_MESSAGE = "No visits in this time.";
+  const STATS_NOTE = "A visit is one time someone opens a link. Estimated visitors is a guess at how many people that was. It can count one person more than once. Some visits come from automated tools.";
+  const DEFAULT_PARAMETER = "utm_source";
+
+  const state = {
+    tab: "create",
+    loaded: false,
+    token: 0,
+    last: null,
+    charts: {}
+  };
+
+  let refs;
+
+  function byId(id) {
+    return document.getElementById(id);
+  }
+
+  // ---- Tabs ----
+
+  function selectTab(name, { focus = false, replaceUrl = true } = {}) {
+    state.tab = name;
+    const stats = name === "stats";
+    refs.tabCreate.setAttribute("aria-selected", String(!stats));
+    refs.tabStats.setAttribute("aria-selected", String(stats));
+    refs.tabCreate.tabIndex = stats ? -1 : 0;
+    refs.tabStats.tabIndex = stats ? 0 : -1;
+    refs.panelCreate.hidden = stats;
+    refs.panelStats.hidden = !stats;
+    if (focus) (stats ? refs.tabStats : refs.tabCreate).focus();
+
+    if (replaceUrl) {
+      try {
+        const params = new URLSearchParams(window.location.search);
+        if (stats) params.set("view", "stats");
+        else params.delete("view");
+        const query = params.toString();
+        window.history.replaceState(null, "", `${window.location.pathname}${query ? `?${query}` : ""}${window.location.hash}`);
+      } catch (error) {
+        // The tab still works without a shareable address.
+      }
+    }
+
+    if (stats && !state.loaded) {
+      state.loaded = true;
+      void loadStats();
+    }
+  }
+
+  function bindTabs() {
+    refs.tabCreate.addEventListener("click", () => selectTab("create"));
+    refs.tabStats.addEventListener("click", () => selectTab("stats"));
+    refs.tabs.addEventListener("keydown", (event) => {
+      const keys = { ArrowLeft: "create", ArrowRight: "stats", Home: "create", End: "stats" };
+      const next = keys[event.key];
+      if (!next) return;
+      event.preventDefault();
+      selectTab(next, { focus: true });
+    });
+  }
+
+  // ---- Tracker API ----
+
+  function utcDate(offsetDays = 0) {
+    const date = new Date();
+    date.setUTCDate(date.getUTCDate() + offsetDays);
+    return date.toISOString().slice(0, 10);
+  }
+
+  async function getJson(path, params = {}) {
+    const url = new URL(path, window.MarinLinksTracker.apiBase);
+    Object.entries(params).forEach(([key, value]) => {
+      if (value !== "" && value !== null && value !== undefined) url.searchParams.set(key, value);
+    });
+    const response = await fetch(url, { headers: { Accept: "application/json" } });
+    if (!response.ok) throw new Error(`The tracker answered ${response.status}.`);
+    return response.json();
+  }
+
+  // Only visits from the chosen agency are counted when one is picked.
+  function agencyFilter() {
+    return refs.agency.value ? { filter_param: "agency", filter_value: refs.agency.value } : {};
+  }
+
+  async function loadStats() {
+    const token = ++state.token;
+    const days = Number(refs.period.value);
+    const link = refs.link.value;
+    const range = { from: utcDate(-(days - 1)), to: utcDate() };
+    const scoped = { ...range, link, ...agencyFilter() };
+
+    refs.status.textContent = "Loading Marin Links…";
+    refs.status.hidden = false;
+
+    try {
+      const [summary, daily, links, parameters, agents] = await Promise.all([
+        getJson("summary", scoped),
+        getJson("daily", scoped),
+        getJson("links", { ...range, limit: 100 }),
+        getJson("parameters", scoped),
+        getJson("agents", { ...scoped, group_by: "browser" })
+      ]);
+      if (token !== state.token) return;
+
+      fillLinkSelect(links.data?.items || []);
+      const names = (parameters.data || []).map((entry) => entry.name);
+      fillParameterSelect(names);
+
+      let values = null;
+      if (refs.parameter.value) {
+        values = await getJson("parameters/values", { ...scoped, name: refs.parameter.value });
+        if (token !== state.token) return;
+      }
+
+      state.last = { summary, daily, links, agents, values, hasParameters: names.length > 0 };
+      renderStats();
+    } catch (error) {
+      console.error(error);
+      if (token !== state.token) return;
+      refs.kpis.hidden = true;
+      refs.grid.hidden = true;
+      refs.note.hidden = true;
+      refs.status.textContent = "Stats could not load. Try again later.";
+      refs.status.hidden = false;
+    }
+  }
+
+  async function loadParameterValues() {
+    if (!state.last) return;
+    const token = ++state.token;
+    const days = Number(refs.period.value);
+    try {
+      const values = await getJson("parameters/values", {
+        from: utcDate(-(days - 1)),
+        to: utcDate(),
+        link: refs.link.value,
+        ...agencyFilter(),
+        name: refs.parameter.value
+      });
+      if (token !== state.token) return;
+      state.last.values = values;
+      renderParameterChart();
+    } catch (error) {
+      console.error(error);
+    }
+  }
+
+  function fillLinkSelect(items) {
+    const selected = refs.link.value;
+    refs.link.textContent = "";
+    refs.link.append(new Option("All links", ""));
+    items.forEach((item) => {
+      refs.link.append(new Option(`${item.display} (${item.redirects})`, item.id));
+    });
+    // A link with no visits in this period would drop out of the list.
+    if (selected && !items.some((item) => item.id === selected)) {
+      refs.link.append(new Option("Selected link", selected));
+    }
+    refs.link.value = selected;
+  }
+
+  function parameterLabel(name) {
+    const title = window.MarinLinksParameterTitles?.[name];
+    return title ? `${title} (${name})` : name;
+  }
+
+  function fillParameterSelect(names) {
+    const selected = refs.parameter.value;
+    refs.parameter.textContent = "";
+    names.forEach((name) => refs.parameter.append(new Option(parameterLabel(name), name)));
+    if (names.includes(selected)) refs.parameter.value = selected;
+    else if (names.includes(DEFAULT_PARAMETER)) refs.parameter.value = DEFAULT_PARAMETER;
+    refs.parameter.disabled = names.length === 0;
+  }
+
+  // ---- Rendering ----
+
+  function number(value) {
+    return Number(value || 0).toLocaleString();
+  }
+
+  function renderStats() {
+    const { summary, daily, links, agents } = state.last;
+    const summaryData = summary.data;
+
+    refs.status.hidden = true;
+    refs.kpis.hidden = false;
+    refs.grid.hidden = false;
+    refs.note.textContent = STATS_NOTE;
+    refs.note.hidden = false;
+
+    refs.kpiVisits.textContent = number(summaryData?.period_redirects);
+    refs.kpiVisitors.textContent = number(summaryData?.estimated_daily_unique_ips);
+    refs.kpiLinks.textContent = number(summaryData?.tracked_links);
+
+    const dailyRows = daily.data || [];
+    renderLineChart(
+      "daily",
+      refs.dailyCanvas,
+      dailyRows,
+      daily.meta?.suppressed
+    );
+
+    refs.linksCard.hidden = Boolean(refs.link.value);
+    renderBarChart(
+      "links",
+      refs.linksCanvas,
+      (links.data?.items || [])
+        .filter((item) => item.redirects > 0)
+        .sort((a, b) => b.redirects - a.redirects)
+        .slice(0, TOP_LIMIT)
+        .map((item) => [item.display, item.redirects]),
+      links.meta?.suppressed
+    );
+
+    renderParameterChart();
+
+    renderBarChart(
+      "browsers",
+      refs.browsersCanvas,
+      (agents.data || []).slice(0, TOP_LIMIT).map((entry) => [entry.label, entry.redirects]),
+      agents.meta?.suppressed
+    );
+  }
+
+  function renderParameterChart() {
+    const { values, hasParameters } = state.last;
+    const entries = (values?.data || [])
+      .slice(0, TOP_LIMIT)
+      .map((entry) => [entry.value || "(empty)", entry.redirects]);
+    renderBarChart(
+      "parameter",
+      refs.parameterCanvas,
+      hasParameters ? entries : [],
+      values?.meta?.suppressed,
+      hasParameters ? EMPTY_MESSAGE : "No tracking details have been used yet."
+    );
+  }
+
+  // Chart.js draws its own text and grid, so give it the page's colors.
+  function applyChartTheme() {
+    if (typeof Chart === "undefined") return;
+    Chart.defaults.color = getComputedStyle(document.body).color;
+    const card = refs.grid.querySelector(".app-card");
+    if (card) Chart.defaults.borderColor = getComputedStyle(card).borderTopColor;
+  }
+
+  function chartImage(canvas) {
+    const out = document.createElement("canvas");
+    out.width = canvas.width;
+    out.height = canvas.height;
+    const context = out.getContext("2d");
+    context.fillStyle = getComputedStyle(canvas.closest(".app-card")).backgroundColor;
+    context.fillRect(0, 0, out.width, out.height);
+    context.drawImage(canvas, 0, 0);
+    return out;
+  }
+
+  function describeChart(canvas, summary) {
+    const title = canvas.dataset.chartTitle || "Chart";
+    canvas.setAttribute("aria-label", summary ? `${title}. ${summary}` : title);
+  }
+
+  // Shows a short message instead of an empty chart.
+  function setChartMessage(canvas, message) {
+    const empty = canvas.parentElement.querySelector(".ml-stats-empty");
+    const download = canvas.parentElement.querySelector(".ml-chart-download");
+    canvas.hidden = Boolean(message);
+    if (download) download.hidden = Boolean(message);
+    empty.textContent = message || "";
+    empty.hidden = !message;
+  }
+
+  function destroyChart(key) {
+    if (!state.charts[key]) return;
+    state.charts[key].destroy();
+    state.charts[key] = null;
+  }
+
+  function renderLineChart(key, canvas, rows, suppressed) {
+    const total = rows.reduce((sum, row) => sum + row.redirects, 0);
+    if (suppressed || total === 0) {
+      destroyChart(key);
+      describeChart(canvas, suppressed ? SUPPRESSED_MESSAGE : EMPTY_MESSAGE);
+      setChartMessage(canvas, suppressed ? SUPPRESSED_MESSAGE : EMPTY_MESSAGE);
+      return;
+    }
+    setChartMessage(canvas, "");
+
+    const labels = rows.map((row) => new Date(`${row.date}T00:00:00Z`).toLocaleDateString([], {
+      month: "short",
+      day: "numeric",
+      timeZone: "UTC"
+    }));
+    const visits = rows.map((row) => row.redirects);
+    const peak = visits.indexOf(Math.max(...visits));
+    describeChart(canvas, `${total} visits, peaking at ${visits[peak]} on ${labels[peak]}.`);
+
+    const data = {
+      labels,
+      datasets: [
+        { label: "Visits", data: visits, borderColor: COLOR, backgroundColor: COLOR, tension: 0 },
+        {
+          label: "Estimated visitors",
+          data: rows.map((row) => row.estimated_daily_unique_ips),
+          borderColor: COLOR_SECOND,
+          backgroundColor: COLOR_SECOND,
+          tension: 0
+        }
+      ]
+    };
+    if (state.charts[key]) {
+      state.charts[key].data = data;
+      state.charts[key].update();
+      return;
+    }
+    applyChartTheme();
+    state.charts[key] = new Chart(canvas, {
+      type: "line",
+      data,
+      options: {
+        responsive: true,
+        plugins: { legend: { display: true } },
+        scales: { y: { ticks: { precision: 0 }, beginAtZero: true } }
+      }
+    });
+  }
+
+  function renderBarChart(key, canvas, entries, suppressed, emptyMessage = EMPTY_MESSAGE) {
+    if (suppressed || entries.length === 0) {
+      destroyChart(key);
+      const message = suppressed ? SUPPRESSED_MESSAGE : emptyMessage;
+      describeChart(canvas, message);
+      setChartMessage(canvas, message);
+      return;
+    }
+    setChartMessage(canvas, "");
+    describeChart(canvas, `Top: ${entries[0][0]} with ${entries[0][1]}, of ${entries.length} shown.`);
+
+    const data = {
+      labels: entries.map(([label]) => label),
+      datasets: [{ data: entries.map(([, count]) => count), backgroundColor: COLOR }]
+    };
+    if (state.charts[key]) {
+      state.charts[key].data = data;
+      state.charts[key].update();
+      return;
+    }
+    applyChartTheme();
+    state.charts[key] = new Chart(canvas, {
+      type: "bar",
+      data,
+      options: {
+        indexAxis: "y",
+        responsive: true,
+        plugins: { legend: { display: false } },
+        scales: { x: { ticks: { precision: 0 } } }
+      }
+    });
+  }
+
+  function downloadChartPng(key) {
+    const chart = state.charts[key];
+    if (!chart) return;
+    const title = chart.canvas.dataset.chartTitle || "Chart";
+    chartImage(chart.canvas).toBlob((blob) => {
+      if (!blob) return;
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `marin-links-${title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")}.png`;
+      document.body.append(link);
+      link.click();
+      link.remove();
+      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+    }, "image/png");
+  }
+
+  function rebuildCharts() {
+    if (!state.last) return;
+    Object.keys(state.charts).forEach(destroyChart);
+    renderStats();
+  }
+
+  function bindStats() {
+    refs.period.addEventListener("change", () => void loadStats());
+    refs.link.addEventListener("change", () => void loadStats());
+    refs.agency.addEventListener("change", () => void loadStats());
+    refs.parameter.addEventListener("change", () => void loadParameterValues());
+    refs.panelStats.querySelectorAll("[data-chart-download]").forEach((button) => {
+      button.addEventListener("click", () => downloadChartPng(button.dataset.chartDownload));
+    });
+    // Existing charts keep their old colors, so rebuild them when the page theme changes.
+    window.matchMedia?.("(prefers-color-scheme: dark)").addEventListener?.("change", rebuildCharts);
+  }
+
+  function start() {
+    refs = {
+      tabs: byId("main-tabs"),
+      tabCreate: byId("tab-create"),
+      tabStats: byId("tab-stats"),
+      panelCreate: byId("panel-create"),
+      panelStats: byId("panel-stats"),
+      period: byId("stats-period"),
+      link: byId("stats-link"),
+      agency: byId("stats-agency"),
+      parameter: byId("stats-parameter"),
+      status: byId("stats-status"),
+      kpis: byId("stats-kpis"),
+      kpiVisits: byId("stats-kpi-visits"),
+      kpiVisitors: byId("stats-kpi-visitors"),
+      kpiLinks: byId("stats-kpi-links"),
+      grid: byId("stats-grid"),
+      linksCard: byId("stats-links-card"),
+      note: byId("stats-note"),
+      dailyCanvas: byId("stats-daily-chart"),
+      linksCanvas: byId("stats-links-chart"),
+      parameterCanvas: byId("stats-parameter-chart"),
+      browsersCanvas: byId("stats-browsers-chart")
+    };
+    if (!refs.tabs || !refs.panelStats || !window.MarinLinksTracker) return;
+
+    window.MarinLinksPresets?.agencies.forEach(({ value, name }) => {
+      refs.agency.append(new Option(name, value));
+    });
+    bindTabs();
+    bindStats();
+    const view = new URLSearchParams(window.location.search).get("view");
+    selectTab(view === "stats" ? "stats" : "create", { replaceUrl: false });
+  }
+
+  if (document.readyState === "complete") {
+    start();
+  } else {
+    document.addEventListener("DOMContentLoaded", start, { once: true });
+  }
+})();
