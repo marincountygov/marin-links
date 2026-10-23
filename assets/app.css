@@ -634,8 +634,10 @@
 
 .qr-download {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 0.5rem;
+  max-width: 100%;
 }
 
 .qr-download[hidden] {
@@ -649,6 +651,8 @@
 
 .qr-download select {
   width: auto;
+  max-width: 100%;
+  min-width: 0;
 }
 
 .qr-parameter-list:empty {
@@ -667,4 +671,49 @@
 
 .qr-workflow input[type="file"]::file-selector-button {
   font-size: 0.875rem;
+}
+
+/* Many links */
+.qr-bulk-table {
+  margin: 0;
+  font-size: 0.875rem;
+}
+
+.qr-bulk-table td {
+  vertical-align: top;
+  overflow-wrap: anywhere;
+}
+
+.qr-bulk-link {
+  font-family: var(--pico-font-family-monospace);
+  font-size: 0.8125rem;
+}
+
+#bulk-urls {
+  font-family: var(--pico-font-family-monospace);
+  font-size: 0.875rem;
+}
+
+#single-url-field[hidden],
+#bulk-url-field[hidden],
+#single-result[hidden],
+#bulk-result[hidden] {
+  display: none;
+}
+
+.qr-layout[data-mode="bulk"] .qr-preview-card {
+  grid-column: 1 / -1;
+}
+
+.qr-layout[data-mode="bulk"] .qr-bulk-table th:first-child,
+.qr-layout[data-mode="bulk"] .qr-bulk-table td:first-child {
+  width: 34%;
+}
+
+.qr-layout[data-mode="bulk"] .qr-settings {
+  grid-column: 1 / -1;
+}
+
+.qr-layout[data-mode="bulk"] .qr-actions > button.primary {
+  flex: 0 0 auto;
 }

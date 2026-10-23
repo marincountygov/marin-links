@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Exercise Marin Links's full browser workflow without external networking."""
+"""Exercise the Marin Links page in a real browser. The Brand Center and the tracker are test data."""
 from __future__ import annotations
 
 import argparse
@@ -7,7 +7,9 @@ import base64
 from pathlib import Path
 import shutil
 import sys
+import json
 import tempfile
+from urllib.parse import parse_qs, quote, unquote, urlsplit
 import xml.etree.ElementTree as ET
 
 import cv2
@@ -17,7 +19,9 @@ try:
 except ImportError:  # OpenCV remains as a fallback.
     zbar_decode = None
 
-from browser_smoke import ROOT, fixture_page, no_overflow, require
+from browser_smoke import (
+    BRAND_CENTER_ROOT, BRAND_LIST, LINK_ID, ROOT, TRACKER_API, configure, no_overflow, ready, require, serve,
+)
 
 
 def canvas_png(page) -> bytes:
@@ -119,24 +123,51 @@ def verify_svg(svg: str, expected_url: str, *, transparent: bool, has_logo: bool
                     "SVG contains an external resource")
 
 
-def wait_for_final(page, expected: str | None = None) -> str:
-    if expected is None:
-        page.wait_for_function(
-            "() => document.querySelector('#qr-canvas')?.dataset.qrReady === 'true' "
-            "&& !document.querySelector('#download')?.disabled"
-        )
-    else:
-        page.wait_for_function(
-            "expected => document.querySelector('#qr-canvas')?.dataset.qrReady === 'true' "
-            "&& document.querySelector('#final-url')?.textContent === expected "
-            "&& !document.querySelector('#download')?.disabled",
-            arg=expected,
-        )
-    value = page.locator("#final-url").text_content()
-    require(bool(value), "Final link is empty")
-    if expected is not None:
-        require(value == expected, f"Final link differs: {value!r} != {expected!r}")
-    return value
+
+TRACKER_ROOT = "https://misc.marinhhs.org/marin-qr-tracker/"
+FORBIDDEN = "Use a link from an approved Marin County website."
+
+
+def expected_link(destination: str, labels: list[tuple[str, str]]) -> str:
+    """The tracker address for a destination with labels added to its query, before any fragment."""
+    parts = urlsplit(destination)
+    query = parts.query
+    extra = "&".join(f"{name}={quote(value, safe='')}" for name, value in labels)
+    query = f"{query}&{extra}" if query and extra else (query or extra)
+    rebuilt = f"{parts.scheme}://{parts.netloc}{parts.path}" + (f"?{query}" if query else "")
+    if parts.fragment:
+        rebuilt += f"#{parts.fragment}"
+    return f"{TRACKER_ROOT}?d={quote(rebuilt, safe='')}"
+
+
+def destination_of(link: str) -> str:
+    return unquote(link.split("?d=", 1)[1])
+
+
+def final_link(page) -> str:
+    page.wait_for_function("() => document.querySelector('#final-url')?.textContent")
+    return page.locator("#final-url").text_content()
+
+
+def wait_for_link(page, expected: str | None = None) -> str:
+    page.wait_for_function(
+        "expected => { const out = document.querySelector('#final-url'); "
+        "return !document.querySelector('#preview-ready').hidden && out.textContent "
+        "&& (expected === null || out.textContent === expected) "
+        "&& !document.querySelector('#copy-link-primary').disabled; }",
+        arg=expected,
+    )
+    return final_link(page)
+
+
+def wait_for_qr(page, expected: str | None = None) -> str:
+    page.wait_for_function(
+        "expected => document.querySelector('#qr-canvas')?.dataset.qrReady === 'true' "
+        "&& (expected === null || document.querySelector('#final-url')?.textContent === expected) "
+        "&& !document.querySelector('#download')?.disabled",
+        arg=expected,
+    )
+    return final_link(page)
 
 
 def fill_link(page, value: str) -> None:
@@ -144,28 +175,9 @@ def fill_link(page, value: str) -> None:
     page.locator("#destination-url").dispatch_event("change")
 
 
-def choose_parameter(row, value: str, filter_text: str | None = None) -> None:
-    trigger = row.locator(".qr-parameter-picker__trigger")
-    trigger.click()
-    search = row.locator(".qr-parameter-picker__search")
-    search.wait_for(state="visible")
-    search.fill(filter_text or value)
-    option = row.locator(f'.qr-parameter-picker__option[data-value="{value}"]')
-    option.wait_for(state="visible")
-    option.click()
-    require(trigger.get_attribute("data-value") == value,
-            f"Parameter selector did not choose {value}")
-
-
-def set_hidden_color(page, value: str) -> None:
-    page.evaluate(
-        """value => {
-          const input = document.querySelector('#qr-color-text');
-          input.value = value;
-          input.dispatchEvent(new Event('input', {bubbles: true}));
-        }""",
-        value,
-    )
+def choose_type(page, value: str) -> None:
+    page.locator(f"#output-{value}").check()
+    page.wait_for_timeout(150)
 
 
 def expect_rejected(page, value: str, message: str) -> None:
@@ -175,141 +187,419 @@ def expect_rejected(page, value: str, message: str) -> None:
         "return error && !error.hidden && error.textContent === message; }",
         arg=message,
     )
-    require(page.locator("#destination-error").text_content() == message,
-            f"Wrong validation message for {value}")
-    require(page.locator("#preview-ready").is_hidden(), f"Rejected link rendered a QR: {value}")
+    require(page.locator("#preview-ready").is_hidden(), f"Rejected link made a result: {value}")
     require(page.locator("#destination-url").get_attribute("aria-invalid") == "true",
             f"Rejected link lacks aria-invalid: {value}")
 
 
-def verify_destination_modes(context) -> None:
-    """The mode comes only from the app URL and cannot disable HTTPS checks."""
-    outside = "https://www.cdc.gov/flu/?utm_source=flyer#details"
-    forbidden = "Use a link from an approved Marin County website."
-
-    for query in (
-        "", "?dest=ANY", "?Dest=any", "?dest=county", "?dest=any&dest=any",
-        "?dest=any&dest=other", "?dest=any&%64est=any", "?other=any",
-    ):
-        page = fixture_page(context, None, f"https://fixture.example/{query}#start")
-        try:
-            page.locator(".qr-parameter-row").wait_for(state="attached")
-            require(page.locator("#destination-mode").is_hidden(),
-                    f"County-only mode incorrectly overridden by {query!r}")
-            require(page.locator("#allowed-websites-help").is_visible(),
-                    f"County-only help missing for {query!r}")
-            require(page.locator("#destination-url").get_attribute("aria-describedby")
-                    == "destination-error", f"Default field help changed for {query!r}")
-            expect_rejected(page, outside, forbidden)
-            fill_link(page, "https://hhs.marincounty.gov/healthy")
-            wait_for_final(page, "https://hhs.marincounty.gov/healthy")
-        finally:
-            page.close()
-
-    for query in ("?dest=any", "?dest=any&utm_medium=qr"):
-        page = fixture_page(context, None, f"https://fixture.example/{query}#start")
-        try:
-            page.locator(".qr-parameter-row").wait_for(state="attached")
-            require(page.locator("#destination-mode").is_visible(),
-                    f"Any-HTTPS mode not shown for {query!r}")
-            require("Any HTTPS link" in page.locator("#destination-mode").text_content(),
-                    "Unrestricted-mode text differs")
-            require(page.locator("#allowed-websites-help").is_hidden(),
-                    "County-only website list is still shown in unrestricted mode")
-            require(page.locator("#destination-url").get_attribute("aria-describedby")
-                    == "destination-mode destination-error",
-                    "Unrestricted help is not connected to the input")
-            require(page.locator("#destination-url").get_attribute("placeholder")
-                    == "https://hhs.marincounty.gov/services", "Destination field changed")
-
-            fill_link(page, outside)
-            wait_for_final(page, outside)
-            require(decode_qr(canvas_png(page)) == outside,
-                    "Unrestricted QR does not encode the entered HTTPS link")
-            with page.expect_download() as download_info:
-                page.locator("#download-format").select_option("svg")
-                page.locator("#download").click()
-            with tempfile.TemporaryDirectory() as folder:
-                filename = Path(folder) / "outside.svg"
-                download_info.value.save_as(filename)
-                verify_svg(filename.read_text(encoding="utf-8"), outside,
-                           transparent=False, has_logo=False)
-
-            # A query parameter in the app URL must not appear in the QR payload.
-            require("dest=any" not in page.locator("#final-url").text_content(),
-                    "The app's mode parameter leaked into the QR destination")
-            for invalid, error in (
-                ("http://www.cdc.gov/flu", "Use a secure HTTPS link."),
-                ("javascript:alert(1)", "Use a secure HTTPS link."),
-                ("https://person:secret@www.cdc.gov/flu", "Remove the user name or password from this link."),
-                ("https://www.cdc.gov:8443/flu", "Remove the extra number after the website name."),
-            ):
-                expect_rejected(page, invalid, error)
-            fill_link(page, "https://marinhhs.org/health")
-            wait_for_final(page, "https://marinhhs.org/health")
-        finally:
-            page.close()
-
-    # Parameters on a *destination* URL do not change the default app mode.
-    page = fixture_page(context, None, "https://fixture.example/#start")
-    try:
-        page.locator(".qr-parameter-row").wait_for(state="attached")
-        expect_rejected(page, "https://www.cdc.gov/flu?dest=any", forbidden)
-    finally:
-        page.close()
+def open_app(context, base_url: str, query: str = ""):
+    page = context.new_page()
+    page.goto(f"{base_url}{query}#start", wait_until="networkidle")
+    ready(page)
+    page.wait_for_function("() => document.querySelectorAll('#tracking-agency option').length > 1")
+    return page
 
 
-def make_logo_png() -> bytes:
-    image = np.full((240, 240, 3), 255, dtype=np.uint8)
-    cv2.rectangle(image, (24, 24), (216, 216), (59, 181, 229), thickness=-1)
-    cv2.circle(image, (120, 120), 56, (0, 0, 0), thickness=-1)
-    success, encoded = cv2.imencode(".png", image)
-    require(success, "Test logo could not be encoded")
-    return encoded.tobytes()
-
-
-def make_wide_transparent_logo_png() -> bytes:
-    """Make a wide mark with large transparent margins for trim testing."""
-    image = np.zeros((280, 720, 4), dtype=np.uint8)
-    cv2.rectangle(image, (140, 80), (580, 200), (59, 181, 229, 255), thickness=-1)
-    cv2.rectangle(image, (180, 105), (540, 175), (0, 0, 0, 255), thickness=-1)
-    success, encoded = cv2.imencode(".png", image)
-    require(success, "Wide test logo could not be encoded")
-    return encoded.tobytes()
-
-
-def make_blank_transparent_png() -> bytes:
-    image = np.zeros((64, 64, 4), dtype=np.uint8)
-    success, encoded = cv2.imencode(".png", image)
-    require(success, "Blank test image could not be encoded")
-    return encoded.tobytes()
+def download_to(page, button_selector: str, folder: Path, name: str) -> Path:
+    with page.expect_download() as info:
+        page.locator(button_selector).click()
+    target = folder / name
+    info.value.save_as(target)
+    return target
 
 
 def logo_metrics(page) -> dict[str, float]:
     raw = page.locator("#qr-canvas").evaluate("""canvas => ({
-      version: canvas.dataset.qrVersion,
       moduleCount: canvas.dataset.qrModuleCount,
-      imageWidth: canvas.dataset.logoImageWidthModules,
-      imageHeight: canvas.dataset.logoImageHeightModules,
       backingWidth: canvas.dataset.logoBackingWidthModules,
       backingHeight: canvas.dataset.logoBackingHeightModules,
       safetyUsage: canvas.dataset.logoSafetyUsage
     })""")
-    require(all(raw.values()), f"Center-image sizing data is incomplete: {raw}")
-    return {key: float(value) for key, value in raw.items()}
-
-
-def require_safe_logo_metrics(metrics: dict[str, float]) -> None:
+    require(all(raw.values()), f"Logo sizing data is incomplete: {raw}")
+    metrics = {key: float(value) for key, value in raw.items()}
     modules = metrics["moduleCount"]
-    require(metrics["backingWidth"] <= (modules * 0.30) + 0.02,
-            f"Center-image backing is too wide: {metrics}")
-    require(metrics["backingHeight"] <= (modules * 0.30) + 0.02,
-            f"Center-image backing is too tall: {metrics}")
-    require(metrics["backingWidth"] * metrics["backingHeight"]
-            <= (modules * modules * 0.08) + 0.5,
-            f"Center-image backing uses too much QR area: {metrics}")
-    require(metrics["safetyUsage"] <= 1.001,
-            f"Center-image plan exceeds its safe correction budget: {metrics}")
+    require(metrics["backingWidth"] <= (modules * 0.30) + 0.02, f"Logo backing is too wide: {metrics}")
+    require(metrics["backingHeight"] <= (modules * 0.30) + 0.02, f"Logo backing is too tall: {metrics}")
+    require(metrics["backingWidth"] * metrics["backingHeight"] <= (modules * modules * 0.08) + 0.5,
+            f"Logo backing uses too much QR area: {metrics}")
+    require(metrics["safetyUsage"] <= 1.001, f"Logo plan exceeds its correction budget: {metrics}")
+    return metrics
+
+
+def csv_rows(path: Path) -> list[list[str]]:
+    import csv
+    text = path.read_text(encoding="utf-8-sig")
+    return list(csv.reader(text.splitlines()))
+
+
+# ---- Scenarios ----
+
+def check_destination_modes(context, base_url: str) -> None:
+    outside = "https://www.cdc.gov/flu?utm_source=flyer#details"
+    for query in ("", "?dest=ANY", "?Dest=any", "?dest=county", "?dest=any&dest=any", "?other=any"):
+        page = open_app(context, base_url, query)
+        try:
+            require(page.locator("#destination-mode").is_hidden(), f"County-only mode overridden by {query!r}")
+            require(page.locator("#allowed-websites-help").is_visible(), f"County-only help missing for {query!r}")
+            expect_rejected(page, outside, FORBIDDEN)
+            fill_link(page, "https://hhs.marincounty.gov/healthy")
+            wait_for_link(page, expected_link("https://hhs.marincounty.gov/healthy", [("via", "link")]))
+        finally:
+            page.close()
+
+    page = open_app(context, base_url, "?dest=any")
+    try:
+        require(page.locator("#destination-mode").is_visible(), "Any-HTTPS mode is not shown")
+        require(page.locator("#allowed-websites-help").is_hidden(), "County-only list shows in unrestricted mode")
+        choose_type(page, "qr")
+        fill_link(page, outside)
+        link = wait_for_qr(page, expected_link(outside, [("via", "qr")]))
+        require(decode_qr(canvas_png(page)) == link, "Unrestricted QR does not encode the tracked link")
+        require("dest=any" not in destination_of(link), "The app's mode parameter leaked into the destination")
+        for invalid, error in (
+            ("http://www.cdc.gov/flu", "Use a secure HTTPS link."),
+            ("javascript:alert(1)", "Use a secure HTTPS link."),
+            ("https://person:secret@www.cdc.gov/flu", "Remove the user name or password from this link."),
+            ("https://www.cdc.gov:8443/flu", "Remove the extra number after the website name."),
+        ):
+            expect_rejected(page, invalid, error)
+    finally:
+        page.close()
+
+    page = open_app(context, base_url)
+    try:
+        for hostname in ("https://marincounty.gov/a", "https://hhs.marincounty.gov/a", "https://marinhhs.org/a",
+                         "https://x.marinhhs.org/a", "https://marincountygov.github.io/marin-links/",
+                         "https://marinmap.org/a"):
+            fill_link(page, hostname)
+            wait_for_link(page, expected_link(hostname, [("via", "link")]))
+        for bad in ("https://marincounty.gov.example.com/a", "https://evilmarincounty.gov/a",
+                    "https://x.marincountygov.github.io/a", "https://www.cdc.gov/flu?dest=any"):
+            expect_rejected(page, bad, FORBIDDEN)
+    finally:
+        page.close()
+
+
+def check_basics_and_tracking(context, base_url: str) -> None:
+    page = open_app(context, base_url)
+    try:
+        order = page.locator('input[name="output"]').evaluate_all("nodes => nodes.map(n => n.value)")
+        require(order == ["link", "bulk", "qr"], f"Type choices are out of order: {order}")
+        require(page.locator("#output-link").is_checked(), "Link is not the default")
+        require(page.locator("#preview-empty").is_visible(), "Initial empty preview is missing")
+        require(page.locator("#design-section").is_hidden(), "Design shows in Link mode")
+        require(page.locator("#qr-color-field").is_hidden() and page.locator("#background-field").is_hidden(),
+                "Switched-off options are visible")
+        require(page.locator("#upload-logo").is_hidden(), "Logo upload is visible")
+        require(page.locator("#panel-stats").is_hidden(), "Stats shows on the Create tab")
+        no_overflow(page)
+
+        base = "https://hhs.marincounty.gov/services/apply?lang=en#start"
+        fill_link(page, base)
+        link = wait_for_link(page, expected_link(base, [("via", "link")]))
+        require(page.locator("#copy-link-primary").get_attribute("data-copy-value") == link, "Copy link value differs")
+        require(page.locator("#scan-note").is_hidden() and page.locator("#size-note").is_hidden(),
+                "QR-only notes show in Link mode")
+
+        page.locator("#tracking-channel").select_option("print")
+        page.locator("#tracking-agency").select_option("hhs")
+        page.locator("#tracking-campaign-choice").select_option(label="Weather Together")
+        labels = [("utm_medium", "print"), ("utm_campaign", "weather_together"), ("agency", "hhs"), ("via", "link")]
+        wait_for_link(page, expected_link(base, labels))
+
+        # A division adds its own label, and the agency label still names the whole department.
+        require(page.locator("#tracking-agency option").count() == 1 + 25 + 20, "Agency list differs from the County list")
+        page.locator("#tracking-agency").select_option("hhs/public-health")
+        with_division = labels[:3] + [("division", "public-health")] + labels[3:]
+        wait_for_link(page, expected_link(base, with_division))
+        page.locator("#tracking-agency").select_option("hhs")
+        wait_for_link(page, expected_link(base, labels))
+
+        page.locator("#tracking-campaign-choice").select_option("__new__")
+        page.locator("#tracking-campaign").fill("Spring Fair 2027!")
+        labels[1] = ("utm_campaign", "spring_fair_2027")
+        wait_for_link(page, expected_link(base, labels))
+
+        page.locator("#tracking-date").fill("2026-10-23")
+        labels.append(("utm_content", "261023"))
+        wait_for_link(page, expected_link(base, labels))
+
+        page.locator("#add-parameter").click()
+        row = page.locator(".qr-parameter-row").first
+        row.locator(".qr-parameter-picker__trigger").click()
+        row.locator('.qr-parameter-picker__option[data-value="utm_content"]').click()
+        row.locator(".qr-parameter-value").fill("bus-stop")
+        labels[-1] = ("utm_content", "261023_bus-stop")
+        wait_for_link(page, expected_link(base, labels))
+
+        row.locator(".qr-parameter-picker__trigger").click()
+        row.locator('.qr-parameter-picker__option[data-value="utm_source"]').click()
+        row.locator(".qr-parameter-value-choice").select_option("flyer")
+        labels[-1] = ("utm_content", "261023")
+        labels.append(("utm_source", "flyer"))
+        wait_for_link(page, expected_link(base, labels))
+
+        row.locator(".qr-parameter-value-choice").select_option("__other__")
+        row.locator(".qr-parameter-value").fill("window")
+        labels[-1] = ("utm_source", "window")
+        wait_for_link(page, expected_link(base, labels))
+
+        # A name used by Channel cannot be added again.
+        row.locator(".qr-parameter-picker__trigger").click()
+        row.locator('.qr-parameter-picker__option[data-value="utm_medium"]').click()
+        row.locator(".qr-parameter-value-choice").select_option("email")
+        page.wait_for_function("() => document.querySelector('.qr-parameter-error') && !document.querySelector('.qr-parameter-error').hidden")
+        require("only once" in row.locator(".qr-parameter-error").text_content(), "Duplicate name was accepted")
+
+        # Reset clears everything and returns to Link.
+        page.locator("#reset-form").click()
+        require(page.locator("#destination-url").input_value() == "", "Reset kept the web address")
+        require(page.locator(".qr-parameter-row").count() == 0, "Reset kept tracking rows")
+        require(page.locator("#tracking-agency").input_value() == "", "Reset kept the agency")
+        require(page.locator("#output-link").is_checked(), "Reset did not return to Link")
+    finally:
+        page.close()
+
+
+def check_qr_output(context, base_url: str, folder: Path) -> None:
+    page = open_app(context, base_url)
+    try:
+        choose_type(page, "qr")
+        require(page.locator("#design-section").is_visible(), "Design is hidden in QR mode")
+        base = "https://marincounty.gov/innovation"
+        fill_link(page, base)
+        link = wait_for_qr(page, expected_link(base, [("via", "qr")]))
+        require(page.locator("#scan-note").is_visible(), "Scan note is hidden in QR mode")
+        require(decode_qr(canvas_png(page)) == link, "QR code does not encode the tracked link")
+        note = page.locator("#size-note").text_content()
+        require("Print this code at least" in note and "inches wide" in note, f"Print size note differs: {note!r}")
+        require("crowded" not in note, "A short link was called crowded")
+
+        # Print sizes: PNG is made at 300 pixels to the inch.
+        page.locator("#download-format").select_option("png")
+        for inches in ("3", "12"):
+            page.locator("#download-size").select_option(inches)
+            path = download_to(page, "#download", folder, f"print-{inches}.png")
+            image = read_png(path.read_bytes())
+            require(abs(image.shape[0] - int(inches) * 300) <= 100, f"{inches} inch PNG is {image.shape[0]} pixels wide")
+            require(decode_qr(path.read_bytes()) == link, f"{inches} inch PNG does not decode")
+            require(path.name == f"print-{inches}.png", "Download name changed")
+        page.locator("#download-size").select_option("3")
+        with page.expect_download() as info:
+            page.locator("#download").click()
+        require(info.value.suggested_filename == "marin-links-3in.png", "PNG download name differs")
+
+        page.locator("#download-format").select_option("svg")
+        require(page.locator("#download-size").is_hidden(), "Print size shows for SVG")
+        svg_path = download_to(page, "#download", folder, "code.svg")
+        verify_svg(svg_path.read_text(encoding="utf-8"), link, transparent=False, has_logo=False)
+
+        # A long link is crowded, and small sizes are not offered.
+        long_link = "https://www.marincounty.gov/departments/hhs/public-health/communicable-disease/" \
+                    "flu-vaccination-clinics-and-community-events-for-the-whole-family-this-fall-and-winter-season"
+        fill_link(page, long_link)
+        wait_for_qr(page, expected_link(long_link, [("via", "qr")]))
+        crowded = page.locator("#size-note").text_content()
+        require("crowded" in crowded, f"Crowded note is missing: {crowded!r}")
+        require(page.locator('#download-size option[value="1.5"]').is_disabled(), "A too-small size can be chosen")
+        decode = decode_qr(canvas_png(page))
+        require(decode == expected_link(long_link, [("via", "qr")]), "Long link does not decode")
+    finally:
+        page.close()
+
+
+def check_logos(context, base_url: str, folder: Path) -> None:
+    # The Brand Center list is live: new names appear, in A to Z order, and outside files are ignored.
+    page = open_app(context, base_url)
+    try:
+        choose_type(page, "qr")
+        page.wait_for_function("() => [...document.querySelectorAll('#logo-choice option')].some(o => o.textContent === 'Zeta Brand')")
+        names = page.locator("#logo-choice option").all_text_contents()
+        require(names == ["None", "Alpha Brand", "Zeta Brand"], f"Logo list differs: {names}")
+        require("Upload my own" not in names, "Upload is offered")
+        fill_link(page, "https://marincounty.gov/innovation")
+        plain = wait_for_qr(page)
+        page.locator("#logo-choice").select_option("alpha-brand")
+        page.wait_for_function("() => document.querySelector('#qr-canvas').dataset.logoBackingWidthModules")
+        metrics = logo_metrics(page)
+        link = wait_for_qr(page)
+        require(link == plain, "Choosing a logo changed the link")
+        require(decode_qr(canvas_png(page)) == link, "QR code with a logo does not decode")
+        svg_path = None
+        page.locator("#download-format").select_option("svg")
+        svg_path = download_to(page, "#download", folder, "logo.svg")
+        verify_svg(svg_path.read_text(encoding="utf-8"), link, transparent=False, has_logo=True)
+        require(metrics["moduleCount"] > 20, "Logo metrics look wrong")
+        page.locator("#logo-choice").select_option("")
+        page.wait_for_function("() => !document.querySelector('#qr-canvas').dataset.logoBackingWidthModules")
+    finally:
+        page.close()
+
+    # If the list cannot be loaded, the backup list is used.
+    fallback_context = context.browser.new_context(viewport={"width": 1200, "height": 900})
+    problems, _ = configure(fallback_context, base_url)
+    original = BRAND_LIST
+    try:
+        fallback_context.unroute("**/*")
+        def intercept(route):
+            from browser_smoke import fulfill_app_data
+            url = urlsplit(route.request.url)
+            if url.netloc == urlsplit(base_url).netloc:
+                route.continue_()
+            elif url.hostname == "marincountygov.github.io" and url.path == "/marin-os/catalog.json":
+                route.fulfill(status=200, content_type="application/json", body="[]",
+                              headers={"Access-Control-Allow-Origin": "*"})
+            elif url.hostname == "api.github.com":
+                route.fulfill(status=200, content_type="application/json", body="[]",
+                              headers={"Access-Control-Allow-Origin": "*"})
+            elif not fulfill_app_data(route, brand_list=None):
+                route.abort()
+        fallback_context.route("**/*", intercept)
+        page = fallback_context.new_page()
+        page.goto(f"{base_url}#start", wait_until="networkidle")
+        ready(page)
+        page.wait_for_timeout(500)
+        names = page.locator("#logo-choice option").all_text_contents()
+        require(names[0] == "None" and "County of Marin" in names and "Weather Together" in names,
+                f"Backup logo list differs: {names}")
+        require(names[1:] == sorted(names[1:]), "Backup logo list is not in A to Z order")
+        page.close()
+    finally:
+        fallback_context.close()
+        _ = original
+
+
+def check_many_links(context, base_url: str, folder: Path) -> None:
+    page = open_app(context, base_url)
+    try:
+        choose_type(page, "bulk")
+        require(page.locator("#single-url-field").is_hidden() and page.locator("#bulk-urls").is_visible(),
+                "Many links fields differ")
+        require(page.locator("#design-section").is_hidden(), "Design shows for Many links")
+        page.locator("#tracking-agency").select_option("hhs")
+        page.locator("#bulk-urls").fill("\n".join([
+            "https://marincounty.gov/innovation",
+            '"https://hhs.marincounty.gov/flu",Flu page,2026',
+            "http://insecure.example.com",
+            "https://evil.example.com/x",
+            '=HYPERLINK("x")',
+            "https://marinhhs.org/care",
+        ]))
+        page.wait_for_function("() => document.querySelectorAll('#bulk-rows tr').length === 6")
+        require("3 of 6 links made" in page.locator("#bulk-summary").text_content(), "Summary differs")
+        rows = page.locator("#bulk-rows tr")
+        first = expected_link("https://marincounty.gov/innovation", [("agency", "hhs"), ("via", "link")])
+        require(rows.nth(0).locator("td").nth(1).text_content() == first, "First link differs")
+        require("secure HTTPS" in rows.nth(2).text_content(), "HTTP problem is missing")
+        require(FORBIDDEN in rows.nth(3).text_content(), "Outside website problem is missing")
+        require(page.locator("#bulk-copy").get_attribute("data-copy-value").count("\n") == 2, "Copy all links value differs")
+        path = download_to(page, "#bulk-csv", folder, "links.csv")
+        table = csv_rows(path)
+        require(table[0] == ["Web address", "Your link", "Problem"], "CSV header differs")
+        require(len(table) == 7, "CSV row count differs")
+        require(table[5][0] == "'=HYPERLINK(\"x\")", f"Formula was not guarded: {table[5][0]!r}")
+        page.locator("#bulk-urls").fill("\n".join(f"https://marincounty.gov/p{i}" for i in range(101)))
+        page.wait_for_function("() => !document.querySelector('#bulk-error').hidden")
+        require("up to 100" in page.locator("#bulk-error").text_content(), "The 100 address limit is not shown")
+        no_overflow(page)
+        page.locator("#reset-form").click()
+        require(page.locator("#output-link").is_checked() and page.locator("#bulk-urls").input_value() == "",
+                "Reset did not clear Many links")
+    finally:
+        page.close()
+
+
+def check_restored_form(context, base_url: str) -> None:
+    """The browser can bring back choices after a refresh. The page must match them."""
+    page = open_app(context, base_url)
+    try:
+        page.evaluate("""() => {
+          document.querySelector('#output-qr').checked = true;
+          document.querySelector('#destination-url').value = 'https://marincounty.gov/innovation';
+          window.dispatchEvent(new PageTransitionEvent('pageshow', {persisted: true}));
+        }""")
+        wait_for_qr(page)
+        require(page.locator("#design-section").is_visible(), "Design is hidden after the form was restored")
+    finally:
+        page.close()
+
+
+def check_stats(context, base_url: str, folder: Path) -> None:
+    calls: list[str] = []
+    page = open_app(context, base_url)
+    page.on("request", lambda request: calls.append(f"{request.method} {request.url}")
+            if request.url.startswith(TRACKER_ROOT) else None)
+    try:
+        page.locator("#tab-stats").click()
+        page.wait_for_function("() => !document.querySelector('#stats-kpis').hidden")
+        require(page.locator("#stats-kpi-visits").text_content() == "10", "Visits number differs")
+        require(page.locator("#stats-kpi-visitors").text_content() == "8", "Estimated visitors number differs")
+        require(page.locator("#stats-kpi-links").text_content() == "2", "Links number differs")
+        page.wait_for_function("() => document.querySelector('#stats-via-chart').getAttribute('aria-label').includes('QR codes')")
+        require("QR codes" in page.locator("#stats-via-chart").get_attribute("aria-label"), "QR codes chart is empty")
+        require(page.locator("#stats-daily-chart").is_visible(), "Visits chart is hidden")
+        options = page.locator("#stats-link option").all_text_contents()
+        require(options[0] == "All links" and any("marincounty.gov/innovation" in o for o in options), "Link list differs")
+        csv_path = download_to(page, "#stats-csv", folder, "stats.csv")
+        table = csv_rows(csv_path)
+        sections = {row[0] for row in table if len(row) > 3}
+        require({"Visits over time", "Top links", "QR codes and links", "Browsers"} <= sections, f"CSV sections differ: {sections}")
+        require(["QR codes and links", "QR codes", "7", ""] in table, "CSV is missing the QR codes row")
+
+        # Choices go into the address and come back from it.
+        page.locator("#stats-period").select_option("7")
+        page.locator("#stats-agency").select_option("hhs")
+        page.wait_for_function("() => location.search.includes('agency=hhs') && location.search.includes('period=7')")
+        shared = page.locator("#stats-copy-link").evaluate("button => (button.dispatchEvent(new PointerEvent('pointerdown')), button.dataset.copyValue)")
+        require("view=stats" in shared and "period=7" in shared and "agency=hhs" in shared, f"Shared address differs: {shared}")
+        require(any("filter_param=agency" in call for call in calls), "The agency filter was not sent")
+        require(all(call.startswith("GET ") for call in calls), "The app made a request that is not read-only")
+        require(all("/api/v1/" in call for call in calls), f"The app called the tracker outside its API: {calls}")
+        require(not any(call.endswith("/marin-qr-tracker/") or "?d=" in call for call in calls), "The app opened a tracked link")
+    finally:
+        page.close()
+
+    page = open_app(context, base_url, f"?view=stats&period=90&agency=fire&link={LINK_ID}&detail=utm_source")
+    try:
+        page.wait_for_function("() => !document.querySelector('#stats-kpis').hidden")
+        require(page.locator("#stats-period").input_value() == "90", "Shared period did not come back")
+        require(page.locator("#stats-agency").input_value() == "fire", "Shared agency did not come back")
+        require(page.locator("#stats-link").input_value() == LINK_ID, "Shared link did not come back")
+        require(page.locator("#stats-parameter").input_value() == "utm_source", "Shared detail did not come back")
+    finally:
+        page.close()
+
+    page = open_app(context, base_url, "?view=stats&period=bad&link=nope&detail=%3Cscript%3E")
+    try:
+        page.wait_for_function("() => !document.querySelector('#stats-kpis').hidden")
+        require(page.locator("#stats-period").input_value() == "30", "A bad period was accepted")
+    finally:
+        page.close()
+
+
+def check_small_screen_and_dark(browser, base_url: str, screenshots: Path | None) -> None:
+    for scheme in ("light", "dark"):
+        context = browser.new_context(viewport={"width": 360, "height": 800}, color_scheme=scheme)
+        configure(context, base_url)
+        page = open_app(context, base_url)
+        try:
+            for kind in ("link", "bulk", "qr"):
+                choose_type(page, kind)
+                if kind == "bulk":
+                    page.locator("#bulk-urls").fill("https://marincounty.gov/innovation")
+                else:
+                    fill_link(page, "https://marincounty.gov/innovation")
+                page.wait_for_timeout(600)
+                no_overflow(page)
+            if screenshots:
+                page.screenshot(path=str(screenshots / f"create-{scheme}.png"), full_page=True)
+            page.locator("#tab-stats").click()
+            page.wait_for_function("() => !document.querySelector('#stats-kpis').hidden")
+            no_overflow(page)
+            if screenshots:
+                page.screenshot(path=str(screenshots / f"stats-{scheme}.png"), full_page=True)
+        finally:
+            context.close()
 
 
 def run(screenshots: Path | None = None) -> None:
@@ -318,389 +608,30 @@ def run(screenshots: Path | None = None) -> None:
     except ImportError as error:
         raise RuntimeError("Browser app tests require Python Playwright and Chromium.") from error
 
-    with sync_playwright() as pw:
+    with serve() as base_url, sync_playwright() as pw, tempfile.TemporaryDirectory() as temp:
+        folder = Path(temp)
         executable = (shutil.which("chromium") or shutil.which("chromium-browser")
                       or shutil.which("google-chrome"))
         options = {"headless": True, "args": ["--no-sandbox", "--disable-dev-shm-usage"]}
         if executable:
             options["executable_path"] = executable
         browser = pw.chromium.launch(**options)
-
         try:
-            context = browser.new_context(viewport={"width": 1440, "height": 1000}, color_scheme="light")
-            context.set_default_timeout(20000)
-            problems: list[str] = []
-            context.on("page", lambda page: page.on("pageerror", lambda error: problems.append(str(error))))
-            page = fixture_page(context, None, "https://fixture.example/#start")
-            page.locator(".qr-parameter-row").wait_for(state="attached")
-
-            require(page.locator("#preview-empty").is_visible(), "Initial empty preview is missing")
-            require(page.locator("#preview-ready").is_hidden(), "Preview starts ready without a link")
-            for selector in ("#download", "#download-format", "#copy-link-primary"):
-                require(page.locator(selector).is_disabled(), f"{selector} starts enabled")
-            require(page.locator(".qr-parameter-row").count() == 1, "Expected one starter tracking row")
-            starter = page.locator(".qr-parameter-row").first
-            require(starter.locator(".qr-parameter-picker__trigger").get_attribute("data-value")
-                    == "utm_source", "Starter parameter is not utm_source")
-            require(starter.locator(".qr-parameter-value").input_value() == "",
-                    "Starter parameter value is not empty")
-            require(starter.locator(".qr-parameter-value").get_attribute("placeholder") == "flyer",
-                    "utm_source placeholder differs")
-            require(page.locator("#destination-url").get_attribute("type") == "url",
-                    "Destination is not a URL input")
-            require(page.locator("#qr-color-field").is_hidden(),
-                    "Future QR color controls are visible")
-            require(not page.locator("#background-transparent").is_checked(),
-                    "Transparent background starts enabled")
-            require(page.locator('[role="radiogroup"][aria-labelledby="background-heading"]').get_attribute("aria-describedby")
-                    == "background-help", "Background help is not connected")
-            require(not page.locator("#qr-color-text").is_visible(),
-                    "Hidden QR color text input is visible")
-            require(not page.locator("#qr-color-text").evaluate(
-                "input => { input.focus(); return document.activeElement === input; }"),
-                "Hidden QR color input can receive focus")
-            no_overflow(page)
-
-            base_link = "https://hhs.marincounty.gov/services/apply?lang=en#start"
-            fill_link(page, base_link)
-            wait_for_final(page, base_link)
-            require(page.locator("#qr-canvas").get_attribute("role") == "img", "Canvas lacks image role")
-            require(page.locator("#qr-canvas").get_attribute("aria-label"), "Canvas lacks a text label")
-            require(page.locator("#qr-canvas").evaluate("canvas => canvas.width >= 1900"),
-                    "PNG canvas is not high resolution")
-            opaque_png = canvas_png(page)
-            require(corner_alpha(opaque_png) == 255, "Default PNG background is not opaque")
-            require(page.locator("#qr-canvas").get_attribute("data-transparent-background") == "false",
-                    "Default canvas background state differs")
-            require(decode_qr(opaque_png) == base_link, "Base QR payload differs from the final link")
-
-            with page.expect_download() as download_info:
-                page.locator("#download-format").select_option("svg")
-                page.locator("#download").click()
-            download = download_info.value
-            require(download.suggested_filename == "marin-links.svg", "SVG download name differs")
-            with tempfile.TemporaryDirectory() as temp_dir:
-                path = Path(temp_dir) / "marin-links.svg"
-                download.save_as(path)
-                opaque_svg = path.read_text(encoding="utf-8")
-                verify_svg(opaque_svg, base_link, transparent=False, has_logo=False)
-                require(decode_qr(svg_to_png(page, opaque_svg)) == base_link,
-                        "Opaque SVG payload differs")
-
-            page.locator("#background-transparent").check()
-            wait_for_final(page, base_link)
-            transparent_png = canvas_png(page)
-            require(corner_alpha(transparent_png) == 0, "Transparent PNG background is still opaque")
-            require(page.locator("#qr-canvas").get_attribute("data-transparent-background") == "true",
-                    "Transparent canvas background state differs")
-            require(page.locator("#qr-canvas-frame").get_attribute("data-transparent") == "true",
-                    "Transparent preview pattern is not enabled")
-            require(decode_qr(transparent_png) == base_link,
-                    "Transparent QR payload differs from the final link")
-
-            with page.expect_download() as download_info:
-                page.locator("#download-format").select_option("svg")
-                page.locator("#download").click()
-            download = download_info.value
-            with tempfile.TemporaryDirectory() as temp_dir:
-                path = Path(temp_dir) / "marin-links-transparent.svg"
-                download.save_as(path)
-                transparent_svg = path.read_text(encoding="utf-8")
-                verify_svg(transparent_svg, base_link, transparent=True, has_logo=False)
-                require(decode_qr(svg_to_png(page, transparent_svg)) == base_link,
-                        "Transparent SVG payload differs")
-
-            first = page.locator(".qr-parameter-row").first
-            first.locator(".qr-parameter-value").fill("qr")
-            # Adding a row must work even when a field update is still waiting
-            # for the short preview debounce.
-            page.locator("#add-parameter").click()
-            require(page.locator(".qr-parameter-row").count() == 2,
-                    "Add tracking detail was lost after typing")
-            tracked_once = "https://hhs.marincounty.gov/services/apply?lang=en&utm_source=qr#start"
-            wait_for_final(page, tracked_once)
-
-            second = page.locator(".qr-parameter-row").nth(1)
-            second_trigger = second.locator(".qr-parameter-picker__trigger")
-            second_trigger.press("ArrowDown")
-            second_search = second.locator(".qr-parameter-picker__search")
-            second_search.wait_for(state="visible")
-            require(second_search.evaluate("input => document.activeElement === input"),
-                    "Parameter filter did not receive keyboard focus")
-            second_search.fill("channel")
-            require(second.locator(".qr-parameter-picker__option:visible").count() == 1,
-                    "Type-to-filter did not narrow the parameter list")
-            second_search.press("Enter")
-            require(second_trigger.get_attribute("data-value") == "utm_medium",
-                    "Keyboard selection did not choose utm_medium")
-            require(second.locator(".qr-parameter-value").input_value() == "",
-                    "Changing the parameter did not clear its value")
-            require(second.locator(".qr-parameter-value").get_attribute("placeholder") == "qr",
-                    "utm_medium placeholder differs")
-
-            second.locator(".qr-parameter-value").fill("poster")
-            second.locator(".qr-parameter-value").dispatch_event("change")
-            tracked = "https://hhs.marincounty.gov/services/apply?lang=en&utm_source=qr&utm_medium=poster#start"
-            wait_for_final(page, tracked)
-            require(decode_qr(canvas_png(page)) == tracked, "Tracked QR payload differs from the final link")
-
-            choose_parameter(second, "event")
-            require(second.locator(".qr-parameter-value").input_value() == "",
-                    "Changing a populated parameter did not clear its value")
-            require(second.locator(".qr-parameter-value").get_attribute("placeholder") == "health_fair",
-                    "event placeholder differs")
-            second.locator(".qr-parameter-error").wait_for(state="visible")
-            require(page.locator("#preview-ready").is_hidden(),
-                    "Incomplete changed tracking detail rendered a QR")
-            choose_parameter(second, "utm_medium", "medium")
-            second.locator(".qr-parameter-value").fill("poster")
-            wait_for_final(page, tracked)
-
-            second.locator(".qr-parameter-value").fill("")
-            second.locator(".qr-parameter-value").dispatch_event("change")
-            second.locator(".qr-parameter-error").wait_for(state="visible")
-            require(second.locator(".qr-parameter-value").get_attribute("aria-invalid") == "true",
-                    "Missing tracking value lacks aria-invalid")
-            require(page.locator("#preview-ready").is_hidden(), "Incomplete tracking detail rendered a QR")
-            second.locator(".qr-parameter-value").fill("poster")
-            second.locator(".qr-parameter-value").dispatch_event("change")
-            wait_for_final(page, tracked)
-
-            page.locator("#add-parameter").click()
-            custom = page.locator(".qr-parameter-row").nth(2)
-            choose_parameter(custom, "custom")
-            require(custom.locator(".qr-custom-parameter-field").is_visible(),
-                    "Custom parameter field did not appear")
-            require(custom.locator(".qr-parameter-value").get_attribute("placeholder") == "Enter a value",
-                    "Custom value placeholder differs")
-            custom.locator(".qr-custom-parameter-input").fill("bad name")
-            custom.locator(".qr-parameter-value").fill("public_health")
-            custom.locator(".qr-parameter-error").wait_for(state="visible")
-            require(custom.locator(".qr-parameter-error").text_content()
-                    == "Use letters, numbers, underscores, hyphens, periods, or tildes.",
-                    "Custom parameter validation message differs")
-            require(page.locator("#preview-ready").is_hidden(),
-                    "Invalid custom parameter rendered a QR")
-            custom.locator(".qr-custom-parameter-input").fill("department")
-            tracked_custom = tracked.replace("#start", "&department=public_health#start")
-            wait_for_final(page, tracked_custom)
-            custom.locator(".qr-remove-parameter").click()
-            wait_for_final(page, tracked)
-
-            page.locator("#add-parameter").click()
-            duplicate = page.locator(".qr-parameter-row").nth(2)
-            duplicate.locator(".qr-parameter-value").fill("duplicate")
-            duplicate.locator(".qr-parameter-error").wait_for(state="visible")
-            require(duplicate.locator(".qr-parameter-error").text_content()
-                    == "Use each tracking detail name only once.",
-                    "Duplicate parameter message differs")
-            require(duplicate.locator(".qr-parameter-picker__trigger").get_attribute("aria-invalid") == "true",
-                    "Duplicate parameter selector lacks aria-invalid")
-            require(page.locator("#preview-ready").is_hidden(), "Duplicate parameter rendered a QR")
-            duplicate.locator(".qr-remove-parameter").click()
-            wait_for_final(page, tracked)
-
-            expect_rejected(
-                page,
-                "https://marincounty.gov.example.com/page",
-                "Use a link from an approved Marin County website.",
-            )
-            expect_rejected(
-                page,
-                "https://notmarincounty.gov/page",
-                "Use a link from an approved Marin County website.",
-            )
-            expect_rejected(
-                page,
-                "https://team.marincountygov.github.io/page",
-                "Use a link from an approved Marin County website.",
-            )
-            expect_rejected(page, "http://marinmap.org/page", "Use a secure HTTPS link.")
-            expect_rejected(
-                page,
-                "https://person@example.com@marincounty.gov/page",
-                "Remove the user name or password from this link.",
-            )
-
-            for allowed in (
-                "https://marincounty.gov/",
-                "https://www.marinhhs.org/programs",
-                "https://marincountygov.github.io/marin-os/",
-                "https://maps.marinmap.org/viewer",
-            ):
-                fill_link(page, allowed)
-                wait_for_final(page)
-                require(page.locator("#final-url").text_content().startswith(allowed.rstrip("/")),
-                        f"Approved link was changed or blocked: {allowed}")
-
-            fill_link(page, "https://marincounty.gov/services")
-            wait_for_final(page)
-            set_hidden_color(page, "#eeeeee")
-            page.wait_for_function(
-                "() => document.querySelector('#color-error').textContent "
-                "=== 'Choose a darker color. Light QR codes may not scan.'"
-            )
-            require(page.locator("#color-error").text_content()
-                    == "Choose a darker color. Light QR codes may not scan.",
-                    "Light-color warning differs")
-            require(page.locator("#preview-ready").is_hidden(), "Low-contrast QR was rendered")
-            set_hidden_color(page, "#000000")
-            final_without_logo = wait_for_final(page)
-
-            logo = make_logo_png()
-            page.locator("#center-image").set_input_files({
-                "name": "county-mark.png",
-                "mimeType": "image/png",
-                "buffer": logo,
-            })
-            page.locator("#image-choice").wait_for(state="visible")
-            wait_for_final(page, final_without_logo)
-            require(page.locator("#image-name").text_content() == "county-mark.png",
-                    "Chosen image name is not shown")
-            require(decode_qr(canvas_png(page)) == final_without_logo,
-                    "QR with center image could not be decoded")
-            square_metrics = logo_metrics(page)
-            require_safe_logo_metrics(square_metrics)
-            require(square_metrics["imageWidth"] / square_metrics["moduleCount"] >= 0.18,
-                    f"Square center image was not enlarged from the old fixed size: {square_metrics}")
-
-            page.locator("#remove-image").click()
-            require(page.locator("#image-choice").is_hidden(), "Center image did not clear")
-            wait_for_final(page, final_without_logo)
-
-            page.locator("#center-image").set_input_files({
-                "name": "wide-transparent-mark.png",
-                "mimeType": "image/png",
-                "buffer": make_wide_transparent_logo_png(),
-            })
-            page.locator("#image-choice").wait_for(state="visible")
-            wait_for_final(page, final_without_logo)
-            wide_short_metrics = logo_metrics(page)
-            require_safe_logo_metrics(wide_short_metrics)
-            rendered_ratio = wide_short_metrics["imageWidth"] / wide_short_metrics["imageHeight"]
-            require(3.4 <= rendered_ratio <= 3.9,
-                    f"Wide image shape or transparent trim was not preserved: {wide_short_metrics}")
-            require(decode_qr(canvas_png(page)) == final_without_logo,
-                    "QR with wide transparent center image could not be decoded")
-
-            long_base = (
-                "https://hhs.marincounty.gov/services/behavioral-health-and-recovery-services/"
-                "crisis-support-and-response/community-resources-and-referral-options/"
-                "printed-materials/fall-2026"
-            )
-            fill_link(page, long_base)
-            long_final = wait_for_final(page)
-            wide_long_metrics = logo_metrics(page)
-            require_safe_logo_metrics(wide_long_metrics)
-            require(wide_long_metrics["version"] >= 7,
-                    f"Long-link test did not cover a QR with version information: {wide_long_metrics}")
-            require(wide_long_metrics["imageWidth"] > wide_short_metrics["imageWidth"],
-                    "Center image did not recalculate for a larger QR grid")
-            require(decode_qr(canvas_png(page)) == long_final,
-                    "Long QR with wide center image could not be decoded")
-
-            with page.expect_download() as download_info:
-                page.locator("#download-format").select_option("svg")
-                page.locator("#download").click()
-            download = download_info.value
-            with tempfile.TemporaryDirectory() as temp_dir:
-                path = Path(temp_dir) / "marin-links-logo.svg"
-                download.save_as(path)
-                logo_svg = path.read_text(encoding="utf-8")
-                verify_svg(logo_svg, long_final, transparent=True, has_logo=True)
-                require(decode_qr(svg_to_png(page, logo_svg)) == long_final,
-                        "SVG with center image could not be decoded")
-
-            if screenshots:
-                screenshots.mkdir(parents=True, exist_ok=True)
-                page.screenshot(path=str(screenshots / "desktop-ready.png"), full_page=True)
-
-            # Test both clipboard actions with a local mock. ClipboardItem accepts
-            # the real PNG Blob promise, so the app still exercises PNG creation.
-            page.evaluate("""() => {
-              Object.defineProperty(window, 'isSecureContext', {value: true, configurable: true});
-              window.__copiedText = null;
-              window.__copiedItems = null;
-              window.ClipboardItem = class ClipboardItem {
-                static supports(type) { return type === 'image/png'; }
-                constructor(data) { this.data = data; }
-              };
-              Object.defineProperty(navigator, 'clipboard', {
-                configurable: true,
-                value: {
-                  writeText: async value => { window.__copiedText = value; },
-                  write: async items => { window.__copiedItems = items; }
-                }
-              });
-            }""")
-            page.locator("#copy-link-primary").click()
-            page.wait_for_function("() => window.__copiedText !== null")
-            require(page.evaluate("window.__copiedText") == long_final, "Copied link differs")
-
-            with page.expect_download() as download_info:
-                page.locator("#download-format").select_option("png")
-                page.locator("#download").click()
-            download = download_info.value
-            require(download.suggested_filename == "marin-links.png", "PNG download name differs")
-            with tempfile.TemporaryDirectory() as temp_dir:
-                path = Path(temp_dir) / "marin-links.png"
-                download.save_as(path)
-                downloaded_png = path.read_bytes()
-                require(corner_alpha(downloaded_png) == 0,
-                        "Downloaded transparent PNG lost its alpha channel")
-                require(decode_qr(downloaded_png) == long_final,
-                        "Downloaded PNG payload differs")
-
-            page.locator("#remove-image").click()
-            require(page.locator("#image-choice").is_hidden(), "Center image did not clear")
-            wait_for_final(page, long_final)
-
-            page.locator("#center-image").set_input_files({
-                "name": "mark.svg",
-                "mimeType": "image/svg+xml",
-                "buffer": b"<svg xmlns='http://www.w3.org/2000/svg'></svg>",
-            })
-            page.locator("#image-error").wait_for(state="visible")
-            require(page.locator("#image-error").text_content() == "Choose a PNG, JPG, or WebP image.",
-                    "Unsafe image type message differs")
-
-            page.locator("#center-image").set_input_files({
-                "name": "blank.png",
-                "mimeType": "image/png",
-                "buffer": make_blank_transparent_png(),
-            })
-            page.wait_for_function(
-                "() => document.querySelector('#image-error').textContent "
-                "=== 'Choose an image with something visible in it.'"
-            )
-            require(page.locator("#preview-ready").is_visible(),
-                    "A rejected replacement image removed the valid plain QR")
-
-            verify_destination_modes(context)
-            require(not problems, f"Browser page errors: {problems}")
+            context = browser.new_context(viewport={"width": 1280, "height": 1000}, color_scheme="light",
+                                          accept_downloads=True)
+            problems, _ = configure(context, base_url)
+            check_destination_modes(context, base_url)
+            check_basics_and_tracking(context, base_url)
+            check_qr_output(context, base_url, folder)
+            check_logos(context, base_url, folder)
+            check_many_links(context, base_url, folder)
+            check_restored_form(context, base_url)
+            check_stats(context, base_url, folder)
+            check_small_screen_and_dark(browser, base_url, screenshots)
+            ignorable = ("localhost:8935", "loadScore", "loadTech")
+            real = [p for p in problems if not any(token in p for token in ignorable)]
+            require(not real, f"Unexpected browser problems: {real}")
             context.close()
-
-            mobile_context = browser.new_context(
-                viewport={"width": 320, "height": 844},
-                color_scheme="dark",
-                has_touch=True,
-            )
-            mobile_context.set_default_timeout(10000)
-            mobile = fixture_page(mobile_context, None, "https://fixture.example/#start")
-            mobile.locator(".qr-parameter-row").wait_for(state="attached")
-            fill_link(mobile, "https://marinhhs.org/")
-            wait_for_final(mobile, "https://marinhhs.org/")
-            mobile_trigger = mobile.locator(".qr-parameter-picker__trigger")
-            mobile_trigger.tap()
-            mobile.locator('.qr-parameter-picker__option[data-value="utm_medium"]').tap()
-            require(mobile_trigger.get_attribute("data-value") == "utm_medium",
-                    "Touch selection did not choose utm_medium")
-            mobile_trigger.tap()
-            mobile.locator(".qr-parameter-picker__search").wait_for(state="visible")
-            no_overflow(mobile)
-            if screenshots:
-                mobile.screenshot(path=str(screenshots / "mobile-dark-ready.png"), full_page=True)
-            mobile_context.close()
         finally:
             browser.close()
 
@@ -709,8 +640,10 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--screenshots", type=Path, help="Optional directory for review screenshots")
     args = parser.parse_args()
+    if args.screenshots:
+        args.screenshots.mkdir(parents=True, exist_ok=True)
     run(args.screenshots)
-    print("Marin Links browser workflow and QR decode checks: PASS")
+    print("Marin Links browser workflow, Many links, Stats, and QR decode checks: PASS")
 
 
 if __name__ == "__main__":

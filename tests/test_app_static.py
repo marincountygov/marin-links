@@ -138,7 +138,10 @@ class MarinQrStaticTests(unittest.TestCase):
         self.assertIn('id="download"', self.html)
         self.assertIn('input[name="background"]', self.app_js)
         self.assertIn('new Blob([svg], { type: "image/svg+xml;charset=utf-8" })', self.app_js)
-        self.assertIn("saveBlob(format === \"svg\" ? svgToBlob() : await canvasToBlob()", self.app_js)
+        self.assertIn('saveBlob(svgToBlob(), "marin-links.svg")', self.app_js)
+        self.assertIn("PRINT_DPI", self.app_js)
+        self.assertIn('id="download-size"', self.html)
+        self.assertIn("Print this code at least", self.app_js)
         self.assertIn("function toSvg(", self.safety_js)
         self.assertIn('data-background="${transparentBackground ? "transparent" : "white"}"',
                       self.safety_js)
@@ -236,13 +239,16 @@ class MarinQrStaticTests(unittest.TestCase):
         self.assertIn('<h3 id="tracking-heading">Tracking <span', self.html)
         self.assertIn('{ name: "utm_medium", value: channel }', self.app_js)
         self.assertIn('{ name: "utm_campaign", value: campaign }', self.app_js)
-        self.assertIn('{ name: "agency", value: refs.agency.value }', self.app_js)
+        self.assertIn('{ name: "agency", value: agency }', self.app_js)
         self.assertIn("tracking-agency", parser.elements)
         self.assertIn("tracking-campaign-choice", parser.elements)
         presets = (ROOT / "assets/presets.js").read_text(encoding="utf-8")
         self.assertIn('{ value: "envision_marin", name: "Envision Marin" }', presets)
         self.assertIn('{ value: "weather_together", name: "Weather Together" }', presets)
-        self.assertIn('{ value: "hhs", name: "Marin County Health and Human Services" }', presets)
+        self.assertIn('{ value: "hhs", name: "Health and Human Services", divisions: [', presets)
+        self.assertIn('{ value: "public-health", name: "Public Health" }', presets)
+        self.assertIn('{ value: "arcc", name: "Assessor, Recorder, County Clerk" }', presets)
+        self.assertIn('{ name: "division", value: division }', self.app_js)
         self.assertIn('filter_param: "agency"', self.stats_js)
         self.assertIn("reset-form", parser.elements)
         self.assertIn('refs.resetForm.addEventListener("click", resetForm)', self.app_js)
@@ -276,6 +282,22 @@ class MarinQrStaticTests(unittest.TestCase):
         self.assertIn("void loadBrandLogos();", self.app_js)
         security = (ROOT / "security.json").read_text(encoding="utf-8")
         self.assertIn('"https://marincountygov.github.io/marin-brand/brands.json"', security)
+
+    def test_via_label_send_date_print_size_bulk_and_stats_sharing(self) -> None:
+        parser = SourceParser(self.html)
+        for element_id in ("output-bulk", "bulk-urls", "bulk-copy", "bulk-csv", "tracking-date",
+                           "download-size", "size-note", "stats-copy-link", "stats-csv", "stats-via-chart"):
+            self.assertIn(element_id, parser.elements)
+        self.assertIn('{ name: "via", value: isQrMode() ? "qr" : "link" }', self.app_js)
+        self.assertIn("261023", self.html)
+        self.assertIn('dateParameter.value = `${dateCode}_${value}`', self.app_js)
+        self.assertIn("const MAX_BULK_LINES = 100;", self.app_js)
+        self.assertIn("function csvCell(", self.app_js)
+        self.assertIn("function csvCell(", self.stats_js)
+        self.assertIn("DENSE_QR_VERSION", self.app_js)
+        self.assertIn('getJson("parameters/values", { ...scoped, name: "via" })', self.stats_js)
+        self.assertIn("function statsAddress()", self.stats_js)
+        self.assertIn("/^[0-9a-f]{32}$/", self.stats_js)
 
     def test_reliability_and_image_limits_are_present(self) -> None:
         self.assertIn("const QUIET_ZONE_MODULES = 4", self.safety_js)

@@ -15,12 +15,16 @@
   const EMPTY_MESSAGE = "No visits in this time.";
   const STATS_NOTE = "A visit is one time someone opens a link. Estimated visitors is a guess at how many people that was. It can count one person more than once. Some visits come from automated tools.";
   const DEFAULT_PARAMETER = "utm_source";
+  const DEFAULT_PERIOD = "30";
+  const VIA_LABELS = { qr: "QR codes", link: "Links" };
 
   const state = {
     tab: "create",
     loaded: false,
     token: 0,
     last: null,
+    pendingLink: "",
+    pendingParameter: "",
     charts: {}
   };
 
@@ -43,21 +47,44 @@
     refs.panelStats.hidden = !stats;
     if (focus) (stats ? refs.tabStats : refs.tabCreate).focus();
 
-    if (replaceUrl) {
-      try {
-        const params = new URLSearchParams(window.location.search);
-        if (stats) params.set("view", "stats");
-        else params.delete("view");
-        const query = params.toString();
-        window.history.replaceState(null, "", `${window.location.pathname}${query ? `?${query}` : ""}${window.location.hash}`);
-      } catch (error) {
-        // The tab still works without a shareable address.
-      }
-    }
+    if (replaceUrl) syncUrl();
 
     if (stats && !state.loaded) {
       state.loaded = true;
       void loadStats();
+    }
+  }
+
+  // The address carries the tab and the Stats choices, so it can be shared.
+  const STATS_PARAMETERS = ["period", "agency", "link", "detail"];
+
+  function statsAddress() {
+    const params = new URLSearchParams(window.location.search);
+    params.set("view", "stats");
+    if (refs.period.value !== DEFAULT_PERIOD) params.set("period", refs.period.value); else params.delete("period");
+    if (refs.agency.value) params.set("agency", refs.agency.value); else params.delete("agency");
+    const link = refs.link.value || state.pendingLink;
+    if (link) params.set("link", link); else params.delete("link");
+    const detail = refs.parameter.value || state.pendingParameter;
+    if (detail) params.set("detail", detail); else params.delete("detail");
+    return `${window.location.origin}${window.location.pathname}?${params.toString()}`;
+  }
+
+  function syncUrl() {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      if (state.tab === "stats") {
+        const address = new URL(statsAddress());
+        window.history.replaceState(null, "", `${address.pathname}${address.search}${window.location.hash}`);
+        refs.copyLink.dataset.copyValue = address.href;
+      } else {
+        params.delete("view");
+        STATS_PARAMETERS.forEach((name) => params.delete(name));
+        const query = params.toString();
+        window.history.replaceState(null, "", `${window.location.pathname}${query ? `?${query}` : ""}${window.location.hash}`);
+      }
+    } catch (error) {
+      // The tab still works without a shareable address.
     }
   }
 
@@ -99,7 +126,7 @@
   async function loadStats() {
     const token = ++state.token;
     const days = Number(refs.period.value);
-    const link = refs.link.value;
+    const link = refs.link.value || state.pendingLink;
     const range = { from: utcDate(-(days - 1)), to: utcDate() };
     const scoped = { ...range, link, ...agencyFilter() };
 
@@ -107,12 +134,13 @@
     refs.status.hidden = false;
 
     try {
-      const [summary, daily, links, parameters, agents] = await Promise.all([
+      const [summary, daily, links, parameters, agents, via] = await Promise.all([
         getJson("summary", scoped),
         getJson("daily", scoped),
         getJson("links", { ...range, limit: 100 }),
         getJson("parameters", scoped),
-        getJson("agents", { ...scoped, group_by: "browser" })
+        getJson("agents", { ...scoped, group_by: "browser" }),
+        getJson("parameters/values", { ...scoped, name: "via" })
       ]);
       if (token !== state.token) return;
 
@@ -126,8 +154,10 @@
         if (token !== state.token) return;
       }
 
-      state.last = { summary, daily, links, agents, values, hasParameters: names.length > 0 };
+      state.last = { summary, daily, links, agents, via, values, hasParameters: names.length > 0, range };
       renderStats();
+      refs.csv.disabled = false;
+      syncUrl();
     } catch (error) {
       console.error(error);
       if (token !== state.token) return;
@@ -140,6 +170,8 @@
   }
 
   async function loadParameterValues() {
+    state.pendingParameter = "";
+    syncUrl();
     if (!state.last) return;
     const token = ++state.token;
     const days = Number(refs.period.value);
@@ -160,7 +192,8 @@
   }
 
   function fillLinkSelect(items) {
-    const selected = refs.link.value;
+    const selected = refs.link.value || state.pendingLink;
+    state.pendingLink = "";
     refs.link.textContent = "";
     refs.link.append(new Option("All links", ""));
     items.forEach((item) => {
@@ -179,7 +212,8 @@
   }
 
   function fillParameterSelect(names) {
-    const selected = refs.parameter.value;
+    const selected = refs.parameter.value || state.pendingParameter;
+    state.pendingParameter = "";
     refs.parameter.textContent = "";
     names.forEach((name) => refs.parameter.append(new Option(parameterLabel(name), name)));
     if (names.includes(selected)) refs.parameter.value = selected;
@@ -228,6 +262,13 @@
     );
 
     renderParameterChart();
+
+    renderBarChart(
+      "via",
+      refs.viaCanvas,
+      (state.last.via.data || []).map((entry) => [VIA_LABELS[entry.value] || entry.value, entry.redirects]),
+      state.last.via.meta?.suppressed
+    );
 
     renderBarChart(
       "browsers",
@@ -390,6 +431,48 @@
     }, "image/png");
   }
 
+  // ---- CSV ----
+
+  // A cell that starts with = + - or @ could run as a formula in a spreadsheet, so it gets a leading apostrophe.
+  function csvCell(value) {
+    let text = String(value ?? "");
+    if (/^[=+\-@\t\r]/.test(text)) text = `'${text}`;
+    return /[",\n\r]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text;
+  }
+
+  function buildCsv() {
+    const { daily, links, via, agents, values, range } = state.last;
+    const selectedText = (select) => select.options[select.selectedIndex]?.text || "";
+    const rows = [
+      ["Marin Links stats"],
+      ["Period", `${range.from} to ${range.to}`],
+      ["Agency", selectedText(refs.agency)],
+      ["Link", selectedText(refs.link)],
+      [],
+      ["Section", "Label", "Visits", "Estimated visitors"]
+    ];
+    (daily.data || []).forEach((row) => rows.push(["Visits over time", row.date, row.redirects, row.estimated_daily_unique_ips]));
+    (links.data?.items || []).filter((item) => item.redirects > 0)
+      .forEach((item) => rows.push(["Top links", item.display, item.redirects, ""]));
+    (via.data || []).forEach((entry) => rows.push(["QR codes and links", VIA_LABELS[entry.value] || entry.value, entry.redirects, ""]));
+    (values?.data || []).forEach((entry) => rows.push([`Tracking details (${refs.parameter.value})`, entry.value || "(empty)", entry.redirects, ""]));
+    (agents.data || []).forEach((entry) => rows.push(["Browsers", entry.label, entry.redirects, ""]));
+    return rows.map((row) => row.map(csvCell).join(",")).join("\r\n") + "\r\n";
+  }
+
+  function downloadCsv() {
+    if (!state.last) return;
+    const blob = new Blob(["\uFEFF", buildCsv()], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `marin-links-stats-${utcDate()}.csv`;
+    document.body.append(link);
+    link.click();
+    link.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+  }
+
   function rebuildCharts() {
     if (!state.last) return;
     Object.keys(state.charts).forEach(destroyChart);
@@ -397,9 +480,12 @@
   }
 
   function bindStats() {
+    // A new choice drops any link or detail that came from the address.
     refs.period.addEventListener("change", () => void loadStats());
-    refs.link.addEventListener("change", () => void loadStats());
+    refs.link.addEventListener("change", () => { state.pendingLink = ""; void loadStats(); });
     refs.agency.addEventListener("change", () => void loadStats());
+    refs.csv.addEventListener("click", downloadCsv);
+    refs.copyLink.addEventListener("pointerdown", syncUrl);
     refs.parameter.addEventListener("change", () => void loadParameterValues());
     refs.panelStats.querySelectorAll("[data-chart-download]").forEach((button) => {
       button.addEventListener("click", () => downloadChartPng(button.dataset.chartDownload));
@@ -418,6 +504,9 @@
       period: byId("stats-period"),
       link: byId("stats-link"),
       agency: byId("stats-agency"),
+      csv: byId("stats-csv"),
+      copyLink: byId("stats-copy-link"),
+      viaCanvas: byId("stats-via-chart"),
       parameter: byId("stats-parameter"),
       status: byId("stats-status"),
       kpis: byId("stats-kpis"),
@@ -437,9 +526,20 @@
     window.MarinLinksPresets?.agencies.forEach(({ value, name }) => {
       refs.agency.append(new Option(name, value));
     });
+    // Choices that came in the address (a shared Stats link).
+    const incoming = new URLSearchParams(window.location.search);
+    const period = incoming.get("period");
+    if (period && [...refs.period.options].some((option) => option.value === period)) refs.period.value = period;
+    const agency = incoming.get("agency");
+    if (agency && [...refs.agency.options].some((option) => option.value === agency)) refs.agency.value = agency;
+    const link = incoming.get("link");
+    if (link && /^[0-9a-f]{32}$/.test(link)) state.pendingLink = link;
+    const detail = incoming.get("detail");
+    if (detail && /^[A-Za-z0-9][A-Za-z0-9._~-]{0,63}$/.test(detail)) state.pendingParameter = detail;
+
     bindTabs();
     bindStats();
-    const view = new URLSearchParams(window.location.search).get("view");
+    const view = incoming.get("view");
     selectTab(view === "stats" ? "stats" : "create", { replaceUrl: false });
   }
 
