@@ -270,11 +270,15 @@ def check_destination_modes(context, base_url: str) -> None:
     try:
         for hostname in ("https://marincounty.gov/a", "https://hhs.marincounty.gov/a", "https://marinhhs.org/a",
                          "https://x.marinhhs.org/a", "https://marincountygov.github.io/marin-links/",
-                         "https://marinmap.org/a"):
+                         "https://marinmap.org/a", "https://marinfair.org/tickets",
+                         "https://www.marinfair.org/a", "https://www.marincultural.org/a",
+                         "https://marincultural.org/a"):
             fill_link(page, hostname)
             wait_for_link(page, expected_link(hostname, [("via", "link")]))
         for bad in ("https://marincounty.gov.example.com/a", "https://evilmarincounty.gov/a",
-                    "https://x.marincountygov.github.io/a", "https://www.cdc.gov/flu?dest=any"):
+                    "https://x.marincountygov.github.io/a", "https://www.cdc.gov/flu?dest=any",
+                    "https://marinfair.org.example.com/a", "https://notmarinfair.org/a",
+                    "https://marincultural.org.example.com/a"):
             expect_rejected(page, bad, FORBIDDEN)
     finally:
         page.close()

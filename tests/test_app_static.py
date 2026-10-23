@@ -55,6 +55,8 @@ class MarinQrStaticTests(unittest.TestCase):
             ("marinhhs.org", "true"),
             ("marincountygov.github.io", "false"),
             ("marinmap.org", "true"),
+            ("marinfair.org", "true"),
+            ("marincultural.org", "true"),
         ])
         self.assertNotRegex(self.domains_js, r'domain:\s*["\']\*')
 

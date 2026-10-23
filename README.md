@@ -37,6 +37,8 @@ The source of truth is [`assets/authorized-domains.js`](assets/authorized-domain
 | `marinhhs.org` | Yes | Yes |
 | `marincountygov.github.io` | Yes | No |
 | `marinmap.org` | Yes | Yes |
+| `marinfair.org` | Yes | Yes |
+| `marincultural.org` | Yes | Yes |
 
 Validation compares parsed hostnames. It does not use substring or prefix matching, so a hostname such as `marincounty.gov.example.com` is rejected in the default mode.
 
