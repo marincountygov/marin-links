@@ -16,7 +16,8 @@ Open `http://127.0.0.1:8765/`. No application build step is required.
 - `assets/app.js`: Create tab. URL validation, tracking fields, QR and link output, many links, print size help, downloads.
 - `assets/stats.js`: tabs and the Stats tab. Tracker requests, Chart.js charts, CSV, and shared Stats links.
 - `assets/tracker-config.js`: tracker addresses.
-- `assets/presets.js`: agencies, saved campaigns, and the backup list of Marin logos. Add a saved campaign here. To change the agency list, update it from the County's list of agencies and departments (`marin-county-agencies-departments.json`), keeping its order.
+- `assets/presets.js`: saved campaigns and the backup list of Marin logos. Add a saved campaign here.
+- `data/agencies.json`: the master list of agencies, departments, and divisions. After a change, run `python3 scripts/build-agencies.py` to rebuild `assets/agencies.js`. See `data/README.md`.
 - `assets/app.css`: styles for this app only.
 - `assets/authorized-domains.js`: destination policy.
 - `assets/qr-image.js`: local logo preparation and transparent-edge trimming.

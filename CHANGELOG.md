@@ -21,6 +21,8 @@ All notable changes to Marin Links are documented here.
 - Many links: paste up to 100 web addresses, get a link for each one, copy them all, or save a CSV.
 - Stats: Download CSV, and Copy link, which keeps the time, agency, link, and detail you chose.
 
+- A master list of agencies, departments, and divisions in `data/agencies.json`, with a schema and a script that checks it and builds the list the page uses. Meant to be shared with other repos.
+
 ### Fixed
 
 - The QR code download controls no longer run off the edge of a phone screen.

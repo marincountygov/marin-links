@@ -267,6 +267,7 @@ def fixture_page(context, current_page, url: str, *, javascript: bool = True):
             "vendor/chart.min.js",
             "vendor/qrcode/qrcode.js",
             "assets/tracker-config.js",
+            "assets/agencies.js",
             "assets/presets.js",
             "assets/authorized-domains.js",
             "assets/qr-image.js",

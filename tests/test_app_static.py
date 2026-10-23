@@ -88,6 +88,7 @@ class MarinQrStaticTests(unittest.TestCase):
             "vendor/chart.min.js",
             "vendor/qrcode/qrcode.js",
             "assets/tracker-config.js",
+            "assets/agencies.js",
             "assets/presets.js",
             "assets/authorized-domains.js",
             "assets/qr-image.js",
@@ -245,9 +246,7 @@ class MarinQrStaticTests(unittest.TestCase):
         presets = (ROOT / "assets/presets.js").read_text(encoding="utf-8")
         self.assertIn('{ value: "envision_marin", name: "Envision Marin" }', presets)
         self.assertIn('{ value: "weather_together", name: "Weather Together" }', presets)
-        self.assertIn('{ value: "hhs", name: "Health and Human Services", divisions: [', presets)
-        self.assertIn('{ value: "public-health", name: "Public Health" }', presets)
-        self.assertIn('{ value: "arcc", name: "Assessor, Recorder, County Clerk" }', presets)
+        self.assertIn("window.MarinAgencyList", presets)
         self.assertIn('{ name: "division", value: division }', self.app_js)
         self.assertIn('filter_param: "agency"', self.stats_js)
         self.assertIn("reset-form", parser.elements)
@@ -298,6 +297,25 @@ class MarinQrStaticTests(unittest.TestCase):
         self.assertIn('getJson("parameters/values", { ...scoped, name: "via" })', self.stats_js)
         self.assertIn("function statsAddress()", self.stats_js)
         self.assertIn("/^[0-9a-f]{32}$/", self.stats_js)
+
+    def test_master_agency_list_is_valid_and_the_generated_file_is_current(self) -> None:
+        import json
+        import subprocess
+        import sys
+        data = json.loads((ROOT / "data/agencies.json").read_text(encoding="utf-8"))
+        ids = [item["id"] for item in data["agencies"]]
+        self.assertEqual(len(ids), len(set(ids)), "An id is used twice")
+        self.assertEqual(sum(1 for item in data["agencies"] if item["type"] == "department"), 25)
+        self.assertEqual(sum(1 for item in data["agencies"] if item["type"] == "division"), 20)
+        by_id = {item["id"]: item for item in data["agencies"]}
+        self.assertEqual(by_id["hhs/public-health"]["parent"], "hhs")
+        self.assertEqual(by_id["arcc"]["name"], "Assessor, Recorder, County Clerk")
+        result = subprocess.run([sys.executable, str(ROOT / "scripts/build-agencies.py"), "--check"],
+                                capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        generated = (ROOT / "assets/agencies.js").read_text(encoding="utf-8")
+        self.assertIn("Do not edit", generated)
+        self.assertIn('"value": "public-health"', generated)
 
     def test_reliability_and_image_limits_are_present(self) -> None:
         self.assertIn("const QUIET_ZONE_MODULES = 4", self.safety_js)
