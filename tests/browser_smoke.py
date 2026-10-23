@@ -63,6 +63,96 @@ def serve():
         thread.join(timeout=5)
 
 
+# ---- Test data for the Brand Center and the tracker. No real network is used. ----
+
+BRAND_CENTER_ROOT = "https://marincountygov.github.io/marin-brand/"
+TRACKER_API = "https://misc.marinhhs.org/marin-qr-tracker/api/v1/"
+BRAND_LIST = {"brands": [
+    {"slug": "alpha-brand", "name": "Alpha Brand", "qrCodeLogo": "brands/alpha-brand/assets/qr-code-logos/square.png"},
+    {"slug": "zeta-brand", "name": "Zeta Brand", "qrCodeLogo": "brands/zeta-brand/assets/qr-code-logos/square.png"},
+    {"slug": "outside", "name": "Outside Brand", "qrCodeLogo": "https://example.com/outside.png"},
+]}
+LINK_ID = "0123456789abcdef0123456789abcdef"
+VIA_VALUES = [{"value": "qr", "redirects": 7}, {"value": "link", "redirects": 3}]
+TRACKER_DATA = {
+    "summary": {"period_redirects": 10, "all_time_redirects": 25, "tracked_links": 2,
+                "likely_automated_redirects": 1, "estimated_daily_unique_ips": 8},
+    "daily": [{"date": "2026-10-21", "redirects": 4, "estimated_daily_unique_ips": 3},
+              {"date": "2026-10-22", "redirects": 6, "estimated_daily_unique_ips": 5}],
+    "links": {"items": [
+        {"id": LINK_ID, "host": "marincounty.gov", "display": "marincounty.gov/innovation",
+         "created_at": "2026-10-01T00:00:00Z", "last_seen_at": "2026-10-22T00:00:00Z", "redirects": 10}],
+        "total": 1, "limit": 100, "offset": 0},
+    "parameters": [{"name": "utm_source", "redirects": 10}, {"name": "via", "redirects": 10}],
+    "agents": [{"label": "Safari", "redirects": 6}, {"label": "Chrome", "redirects": 4}],
+}
+TRACKER_META = {"from": "2026-10-01", "to": "2026-10-22", "traffic": "all", "suppressed": False, "note": "Test data."}
+
+
+def small_square_png(size: int = 160) -> bytes:
+    """A plain two-color square PNG, made with the standard library only."""
+    import struct
+    import zlib
+    rows = []
+    for y in range(size):
+        row = bytearray([0])
+        for x in range(size):
+            row += bytes((230, 180, 60)) if (x // 20 + y // 20) % 2 else bytes((30, 90, 180))
+        rows.append(bytes(row))
+
+    def chunk(kind: bytes, data: bytes) -> bytes:
+        body = kind + data
+        return struct.pack(">I", len(data)) + body + struct.pack(">I", zlib.crc32(body) & 0xFFFFFFFF)
+
+    return (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", size, size, 8, 2, 0, 0, 0))
+            + chunk(b"IDAT", zlib.compress(b"".join(rows))) + chunk(b"IEND", b""))
+
+
+def fulfill_app_data(route, brand_list: dict | None = BRAND_LIST, calls: list[str] | None = None) -> bool:
+    """Answer the Brand Center and tracker requests with test data. Returns False for other requests."""
+    url = urlsplit(route.request.url)
+    full = route.request.url
+    headers = {"Access-Control-Allow-Origin": "*"}
+    if calls is not None and (full.startswith(BRAND_CENTER_ROOT) or full.startswith(TRACKER_API)):
+        calls.append(full)
+    if full == BRAND_CENTER_ROOT + "brands.json":
+        if brand_list is None:
+            route.fulfill(status=404, body="not found", headers=headers)
+        else:
+            route.fulfill(status=200, content_type="application/json", body=json.dumps(brand_list), headers=headers)
+        return True
+    if full.startswith(BRAND_CENTER_ROOT + "brands/") and full.endswith(".png"):
+        route.fulfill(status=200, content_type="image/png", body=small_square_png(), headers=headers)
+        return True
+    if full.startswith(TRACKER_API):
+        path = url.path.split("/api/v1/", 1)[1]
+        query = dict(part.split("=", 1) for part in url.query.split("&") if "=" in part)
+        if route.request.method != "GET":
+            route.fulfill(status=405, body="read only", headers=headers)
+            return True
+        meta = dict(TRACKER_META)
+        if path == "summary":
+            data = TRACKER_DATA["summary"]
+        elif path == "daily":
+            data = TRACKER_DATA["daily"]
+        elif path == "links":
+            data = TRACKER_DATA["links"]
+        elif path == "parameters":
+            data = TRACKER_DATA["parameters"]
+        elif path == "parameters/values":
+            data = VIA_VALUES if query.get("name") == "via" else [{"value": "flyer", "redirects": 6}]
+        elif path == "agents":
+            data = TRACKER_DATA["agents"]
+            meta["group_by"] = "browser"
+        else:
+            route.fulfill(status=404, body="not found", headers=headers)
+            return True
+        route.fulfill(status=200, content_type="application/json",
+                      body=json.dumps({"data": data, "meta": meta}), headers=headers)
+        return True
+    return False
+
+
 def configure(context, base_url: str) -> tuple[list[str], list[str]]:
     context.set_default_timeout(10000)
     context.set_default_navigation_timeout(15000)
@@ -82,6 +172,8 @@ def configure(context, base_url: str) -> tuple[list[str], list[str]]:
             external.append(route.request.url)
             route.fulfill(status=200, content_type="application/json", body=json.dumps(COMMITS),
                           headers={"Access-Control-Allow-Origin": "*"})
+        elif fulfill_app_data(route):
+            external.append(route.request.url)
         else:
             problems.append(f"Unexpected external request: {route.request.url}")
             route.abort()
@@ -172,11 +264,15 @@ def fixture_page(context, current_page, url: str, *, javascript: bool = True):
         }""", [CATALOG, SECURITY, COMMITS, urlsplit(url).fragment])
         for relative in (
             "vendor/marinos/marinos.js",
+            "vendor/chart.min.js",
             "vendor/qrcode/qrcode.js",
+            "assets/tracker-config.js",
+            "assets/presets.js",
             "assets/authorized-domains.js",
             "assets/qr-image.js",
             "assets/qr-safety.js",
             "assets/app.js",
+            "assets/stats.js",
         ):
             page.add_script_tag(content=(ROOT / relative).read_text(encoding="utf-8"))
     return page

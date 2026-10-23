@@ -2,7 +2,8 @@
  * Marin Links preset lists.
  * Logos are read from the Brand Center's brand list (brands.json), in A to Z order. The list below is
  * only a backup, used if the Brand Center list cannot be loaded.
- * Agencies come from the Departments group in marin-mentions' config/monitors.yaml.
+ * Agencies and their divisions come from the County's list of agencies and departments
+ * (marin-county-agencies-departments.json), in the same order. A division is picked as "agency/division".
  * Campaigns are chosen by the web team. To add one, add a line to CAMPAIGNS in a pull request.
  * Optional fields on a campaign: channel (a Channel option value) and agency (an agency value).
  */
@@ -11,37 +12,32 @@
   "use strict";
 
   const AGENCIES = [
-    { value: "ag-weights-measures", name: "Marin County Agriculture, Weights and Measures" },
-    { value: "assessor", name: "Marin County Assessor-Recorder-County Clerk" },
-    { value: "child-support", name: "Marin County Child Support Services" },
-    { value: "cda", name: "Marin County Community Development Agency" },
-    { value: "county-counsel", name: "Marin County Counsel" },
-    { value: "csa-29", name: "County Service Area 29" },
-    { value: "csa-6", name: "County Service Area 6" },
-    { value: "cultural-services", name: "Marin County Cultural Services" },
-    { value: "da", name: "Marin County District Attorney" },
-    { value: "elections", name: "Marin County Elections" },
-    { value: "retirement", name: "Marin County Employees' Retirement Association" },
-    { value: "county-executive", name: "Marin County Executive" },
-    { value: "finance", name: "Marin County Finance" },
-    { value: "fire", name: "Marin County Fire Department" },
+    { value: "awm", name: "Agriculture, Weights and Measures", divisions: [{ value: "agriculture", name: "Agriculture" }, { value: "weights-and-measures", name: "Weights and Measures" }] },
+    { value: "arcc", name: "Assessor, Recorder, County Clerk" },
+    { value: "board", name: "Board of Supervisors" },
+    { value: "css", name: "Child Support Services" },
+    { value: "grand-jury", name: "Civil Grand Jury" },
+    { value: "cda", name: "Community Development Agency", divisions: [{ value: "building-and-safety", name: "Building and Safety" }, { value: "environmental-health-services", name: "Environmental Health Services" }, { value: "planning", name: "Planning" }, { value: "housing-and-grants", name: "Housing and Grants Division" }] },
+    { value: "county-counsel", name: "County Counsel" },
+    { value: "county-executive", name: "Office of the County Executive" },
+    { value: "cultural-services", name: "Cultural Services" },
+    { value: "da", name: "District Attorney" },
+    { value: "elections", name: "Elections (Registrar of Voters)" },
+    { value: "finance", name: "Department of Finance" },
+    { value: "fire", name: "Fire Department" },
+    { value: "hhs", name: "Health and Human Services", divisions: [{ value: "general-administration", name: "General Administration" }, { value: "bhrs", name: "Behavioral Health and Recovery Services" }, { value: "homelessness-and-coordinated-care", name: "Homelessness and Coordinated Care" }, { value: "public-health", name: "Public Health" }, { value: "social-services", name: "Social Services" }] },
+    { value: "hr", name: "Human Resources", divisions: [{ value: "classification-compensation", name: "Classification and Compensation" }, { value: "employee-benefits-wellness", name: "Employee Benefits and Wellness" }, { value: "employee-and-labor-relations", name: "Employee and Labor Relations" }, { value: "equal-opportunity", name: "Equal Opportunity" }, { value: "internships-and-volunteers", name: "Internships and Volunteers" }, { value: "learning-and-organizational-development", name: "Learning and Organizational Development" }, { value: "leaves", name: "Leaves" }, { value: "recruitment", name: "Recruitment" }, { value: "risk-management", name: "Risk Management" }] },
+    { value: "ist", name: "Information Services and Technology" },
     { value: "library", name: "Marin County Free Library" },
-    { value: "gnoss-field-airport", name: "Gnoss Field Airport" },
-    { value: "hhs", name: "Marin County Health and Human Services" },
-    { value: "hr", name: "Marin County Human Resources" },
-    { value: "ist", name: "Marin County Information Services and Technology" },
-    { value: "oem", name: "Marin Office of Emergency Management" },
-    { value: "parks", name: "Marin County Parks" },
-    { value: "probation", name: "Marin County Probation" },
-    { value: "public-defender", name: "Marin County Public Defender" },
-    { value: "public-works", name: "Marin County Public Works" },
-    { value: "sheriff", name: "Marin County Sheriff" },
-    { value: "tax-collector", name: "Marin County Tax Collector" },
-    { value: "transit", name: "Marin Transit" },
-    { value: "uc-extension", name: "Marin UC Cooperative Extension" },
-    { value: "zero-waste-marin", name: "Zero Waste Marin" }
-  ];
-  const CAMPAIGNS = [
+    { value: "parks", name: "Parks" },
+    { value: "probation", name: "Probation" },
+    { value: "public-defender", name: "Public Defender" },
+    { value: "public-works", name: "Public Works" },
+    { value: "retirement", name: "Retirement" },
+    { value: "sheriff", name: "Sheriff" },
+    { value: "tax-collector", name: "Tax Collector" },
+    { value: "uc-extension", name: "UC Cooperative Extension (Farm Advisor)" }
+  ];  const CAMPAIGNS = [
     { value: "envision_marin", name: "Envision Marin" },
     { value: "weather_together", name: "Weather Together" }
   ];

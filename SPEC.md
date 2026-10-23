@@ -4,22 +4,25 @@ Status: implemented
 
 ## Purpose
 
-Marin Links helps County staff make reliable QR codes for approved Marin County links. It is a static MarinOS app. All app data and file generation stay in the browser.
+Marin Links helps County staff make links and QR codes for approved Marin County web pages, and see how often they are used. It is a static MarinOS app. Links and QR codes are made in the browser. Visits are counted by the County tracker.
 
-## Primary workflow
+## Tabs
 
-1. The user pastes a complete HTTPS web address, including the domain.
-2. JavaScript parses the URL and checks its normalized hostname against the allowlist.
-3. The user may add tracking name/value pairs through a searchable parameter selector.
-4. The user may choose a transparent output background.
-5. The user may choose a local center image.
-6. The app prepares the image, finds a conservative size for the current QR code, and checks the result.
-7. The app shows the final URL and QR preview only after the latest result is ready.
-8. The user may download PNG or SVG, copy the PNG, or copy the final link.
+The page has two tabs inside `#start`: **Create** and **Stats**. Create is the default. `?view=stats` opens Stats. The tabs follow the ARIA tab pattern, with Left, Right, Home, and End keys.
 
-A QR code is shown only while every nonempty field is valid. Export actions remain disabled while a new result is being checked.
+## Create
 
-## Destination rules
+### Type
+
+A radio group named **Type** with three choices, in this order: **Link**, **Many links**, **QR code**. Link is the default.
+
+- **Link:** shows the final link and a Copy link button.
+- **Many links:** a text box for up to 100 web addresses, one per line. A pasted spreadsheet row works; the first web address in it is used. The result is a table with a link for each address, a problem message for each address that fails, Copy all links, and Download CSV. The tracking choices apply to every link. The results use the full page width.
+- **QR code:** shows the QR code, the Design section (Logo), the print size help, downloads, and Copy link.
+
+The browser can bring back form choices after a refresh. The app reads the real form state on load and when a page is restored.
+
+### Web address rules
 
 | Domain | Subdomains allowed |
 |---|---:|
@@ -28,198 +31,102 @@ A QR code is shown only while every nonempty field is valid. Export actions rema
 | `marincountygov.github.io` | No |
 | `marinmap.org` | Yes |
 
-Additional rules:
+- HTTPS is required. Embedded credentials and nonstandard ports are rejected.
+- Matching uses the parsed hostname, never string prefix or substring tests.
+- Paths, existing query parameters, and fragments are kept.
 
-- HTTPS is required.
-- Embedded URL credentials are rejected.
-- Nonstandard ports are rejected.
-- Matching uses the parsed hostname, not string prefix or substring tests.
-- Paths, existing query parameters, and fragments are preserved.
+#### Optional unrestricted mode (`?dest=any`)
 
-### Optional unrestricted mode (`?dest=any`)
+- Opening the app with exactly one `dest=any` query parameter skips only the hostname allowlist. Every other check stays. The name and value are case-sensitive, and a repeated `dest` does not enable it.
+- The mode is fixed when the page loads. A `dest` inside a pasted address has no effect.
+- The page shows **Any HTTPS link** and hides the County-only website list.
+- This is not a permission control. Anyone can use the link.
 
-- By default, the domain allowlist above applies unchanged.
-- Opening the **application itself** with exactly one `dest=any` query parameter skips only the destination hostname allowlist. All other destination validations remain active, including HTTPS, credentials, and nonstandard ports.
-- Match the parsed application query parameters using `URLSearchParams`. The name `dest` and value `any` are case-sensitive, and a repeated `dest` parameter never enables the override (including percent-encoded repeats). Other application parameters are ignored.
-- The mode is fixed when the page loads. The `dest` parameter in a *pasted destination* has no effect on app mode.
-- In unrestricted mode, show **Any HTTPS link** and plain-language help below the destination input. Hide the County-only website-list disclosure and include the status/help text in `aria-describedby`. The default UI remains unchanged.
-- The About page provides a direct link to `https://marincountygov.github.io/marin-links/?dest=any` and explains how to use it, that HTTPS is required, and that users should check the destination.
-- This public mode is not an authentication mechanism or authorization control; anyone can activate it. It must not fetch, preload, visit, or redirect to destination links.
-- Tracking, QR correction and structure protection, local rendering, PNG/SVG output, clipboard, and privacy behavior are identical in both modes.
+### The tracked link
 
-## Tracking details
+The final link is the tracker address plus `?d=` and the percent-encoded destination, with these labels added to the destination:
 
-Tracking is optional. Each row contains a searchable **Parameter name** selector and a **Value** field.
-
-### Curated parameter names
-
-The selector presents these options in this order:
-
-| Group | Parameter | Short description |
-|---|---|---|
-| Campaign tracking | `utm_source` | Traffic source |
-| Campaign tracking | `utm_medium` | Marketing channel |
-| Campaign tracking | `utm_campaign` | Campaign name |
-| Campaign tracking | `utm_content` | Link or placement variant |
-| Campaign tracking | `utm_term` | Keyword or audience |
-| General | `ref` | Referral source |
-| General | `source` | Origin of visit |
-| General | `campaign` | Campaign identifier |
-| General | `event` | Event identifier |
-| General | `location` | Location identifier |
-| General | `lang` | Language preference |
-| General | `category` | Content category |
-| General | `topic` | Topic identifier |
-| General | `id` | Record identifier |
-| General | `form` | Form identifier |
-| General | `program` | Program identifier |
-| Other | Custom… | Enter a parameter name |
-
-The first five names are established UTM conventions. The general names are common patterns; a destination only acts on a parameter when that site supports it.
-
-### Selector interaction
-
-- A new row starts with `utm_source` selected.
-- The user can open the selector and type to filter names and descriptions.
-- The selector supports pointer use, Arrow keys, Home, End, Enter, Escape, and direct typing from its trigger.
-- Options are grouped as Campaign tracking, General, and Other.
-- Selecting a different name clears the current Value and changes its placeholder.
-- An untouched starter row with an empty Value is ignored so optional tracking never blocks the basic QR workflow.
-- After a row has been changed or given input, a missing required part is an error.
-
-### Value placeholders
-
-Values are always empty by default. The app uses these examples only as placeholder text:
-
-| Parameter | Placeholder |
+| Label | Source |
 |---|---|
-| `utm_source` | `flyer` |
-| `utm_medium` | `qr` |
-| `utm_campaign` | `flu_2026` |
-| `utm_content` | `poster_a` |
-| `utm_term` | `seniors` |
-| `ref` | `library` |
-| `source` | `outreach` |
-| `event` | `health_fair` |
-| `location` | `novato` |
-| `lang` | `es` |
-| All other options | `Enter a value` |
+| `utm_medium` | Channel |
+| `utm_campaign` | Campaign (a saved one, or a new name changed to lowercase words joined by underscores) |
+| `agency` | Agency (the whole department, even when a division is picked) |
+| `division` | Division, when one is picked |
+| `via` | `qr` for a QR code, `link` for a link or many links |
+| `utm_content` | Send date as `YYMMDD`, joined to a "which version" detail as `YYMMDD_value` |
+| other names | Extra tracking details |
 
-Placeholder text is never serialized into the URL.
+- Channel, Agency, Campaign, and Send date are optional. `via` is always added.
+- Extra tracking details are added with **Add a tracking detail**. Each has a name picker (plain wording first, technical name below), and a value. Names with common answers (`utm_source`, `utm_medium`, `lang`) use a dropdown with a **Something else** choice.
+- A custom name starts with a letter or number, uses letters, numbers, underscores, hyphens, periods, or tildes, and is at most 64 characters.
+- A name may be used only once, counting Channel, Campaign, Agency, Division, `via`, and the send date.
+- Up to 20 extra tracking details.
+- The Agency list is the County's list of agencies and departments, in its own order. A department's divisions follow it as "Department: Division" (for example, Health and Human Services: Public Health). Saved campaigns and the list are in `assets/presets.js`.
+- Example values appear only as placeholder text and are never added to a link.
 
-### Custom names and validation
+### Logo (QR code only)
 
-- Selecting Custom… reveals a field labeled **Custom parameter name**.
-- The literal selector value `custom` is never added to the URL.
-- Custom names are trimmed and limited to 64 characters.
-- A custom name must begin with a letter or number and may contain letters, numbers, underscores, hyphens, periods, or tildes.
-- Each helper row must use a unique parameter name. The app rejects a duplicate among helper rows.
-- Existing parameters in the pasted destination are preserved and are not rewritten or removed.
-- Complete rows are appended with `URLSearchParams`.
-- The app supports up to 20 rows.
-- The interface explains tracking in plain language and includes UTM examples.
+- A **Logo** dropdown lists None, then the Marin logos in A to Z order.
+- The list comes from the Brand Center's `brands.json`. The app starts with a backup list and switches to the live list when it loads. If the list cannot be loaded, the backup list stays.
+- Only logo files whose address starts with the Brand Center brands folder are used.
+- Uploading a logo is switched off (`FEATURES.logoUpload`). The Background choice and QR color picker are also switched off.
+- A logo follows the same checks as any image: PNG, JPEG, or WebP, at most 2 MB and 4,096 pixels a side. Fully transparent margins are removed. The visible proportions are kept.
 
-## Design and QR reliability
+### QR code rules
 
-- Default QR foreground: `#1f1f1f`.
-- The color picker and text field remain in the code but are hidden through the `FEATURES.qrColorPicker` flag.
-- The hidden color controls are not visible, keyboard-focusable, or exposed in the accessibility tree.
-- Existing color normalization and the 7:1 contrast gate against white remain functional for later reactivation.
-- Error correction: high.
-- Quiet zone: four modules.
-- PNG backing canvas: approximately 2,048 pixels, with integer module sizes.
-- Center image: optional PNG, JPEG, or WebP; 2 MB maximum; 4,096 pixels maximum on either side.
-- SVG center images are not accepted.
-- Fully transparent outer margins are removed in memory.
-- The visible image's proportions are preserved. It is not cropped to a square.
-- A white backing with one module of image padding is drawn behind the image.
-- Maximum backing width and height are each 30% of the QR grid.
-- Maximum backing area is 8% of the QR grid.
-- Finder, timing, format, and version modules are restored above the image and backing. Alignment modules are not restored, so nothing is layered over the logo.
-- Candidate sizes are checked at two raster scales.
-- Changed codewords in each Reed-Solomon block may use no more than 65% of that block's mathematical correction capacity.
-- The final image is reduced from the largest passing candidate and checked again.
-- If no image size passes, the app does not enable export and asks the user to try a shorter link or another image.
-- The interface tells users to scan-test the code before sharing it.
+- Error correction: high. Quiet zone: four modules. Default color `#1f1f1f` on white.
+- A white backing with one module of padding sits behind the logo. It is at most 30% of the grid across and 8% of its area.
+- Finder, timing, format, and version modules are restored over the logo. Alignment modules are not, so nothing is layered over the logo.
+- Candidate logo sizes are checked at two raster scales. Changed codewords in each Reed-Solomon block use at most 65% of its correction capacity. The final size is reduced from the largest passing candidate and checked again.
+- If no logo size passes, export stays off and the page asks for a shorter link or another logo.
 
-## Background option
+### Print help (QR code only)
 
-- White is the default background.
-- The user may select **Transparent background**.
-- When selected, light QR modules and the four-module quiet zone use alpha transparency in the PNG and have no background rectangle in the SVG.
-- The center-image safety backing remains white, including in transparent output.
-- The preview uses a checker pattern so transparency is visible without changing the exported file.
-- The app warns users to place a transparent QR code only on a light, plain background.
-- The app does not attempt to inspect the future document or surface behind a transparent QR code.
-- A background change invalidates the prior result and regenerates all output from the current checked model.
+- The page says the smallest print width: each square about 0.5 mm (0.0197 in), counting the quiet zone, rounded up to 0.1 in.
+- A code of version 13 or more adds a note that it is crowded and a shorter link or fewer tracking details makes it easier to scan.
+- A Print size choice for PNG: Business card or sticker (1.5 in), Flyer or handout (3 in), Poster (6 in, the default), Banner or sign (12 in). A size below the smallest print width is disabled and marked "too small".
+- The PNG is made at 300 pixels to the inch. The file is named `marin-links-<inches>in.png`. SVG hides the size choice.
 
-## Async update behavior
+### Downloads
 
-- URL, tracking, background, image, and retained color changes invalidate the prior QR result.
-- Export buttons are disabled while a new result is prepared.
-- A short status message is shown during the check.
-- A result from an older request is discarded if the user changes a field before it finishes.
-- The same checked QR model, center-image plan, color, and background choice are used for preview, PNG, SVG, and PNG copy.
+- One **Download** button with a PNG or SVG choice. The SVG is `marin-links.svg`.
+- The SVG has vector modules, a title and description naming the link, and no script or outside resource. A logo is embedded as a local PNG data address, reduced to at most 1,600 pixels on its longest side.
+- **Copy link** copies the link text. There is no Copy PNG.
+- **Reset** clears the form and returns it to Link.
 
-## PNG export and clipboard
+## Stats
 
-- Download creates `marin-links.png` from the rendered canvas.
-- The PNG preserves alpha transparency when the background option is selected.
-- There is no Copy PNG button. Copy link copies the link text.
-- PNG copy uses the same background choice as the preview and download.
-- When PNG copy is unavailable or fails, the app tells the user to download the PNG.
-- Copy link uses the shared App Shell clipboard behavior.
+Reads the tracker's public API with `GET` requests only. Nothing about the person using the app is sent.
 
-## SVG export
-
-- Download creates `marin-links.svg` locally in the browser.
-- QR modules and the quiet-zone geometry are vector data.
-- White output includes a white background rectangle; transparent output omits it.
-- A center image is embedded as a local PNG data URL. It is never linked to an external file.
-- Prepared center images larger than 1,600 pixels on their longest side are reduced before embedding. This limits file size while retaining ample print resolution for the allowed image footprint.
-- The SVG preserves the same center-image size, white backing, rounded clipping, and protected QR modules as the PNG.
-- The SVG contains a title and description naming the final URL.
-- The SVG contains no script or external resource request.
+- Controls: Time (7, 30, 90 days, or a year), Agency (departments only), Link.
+- Numbers: Visits, Estimated visitors, Links.
+- Charts (Chart.js, local): Visits over time, QR codes and links (from `via`), Top links, Tracking details (with a picker for which detail), Browsers. Each chart has a PNG download.
+- The agency choice uses the tracker's one filter. A number the tracker holds back shows "Too few visits to show."
+- **Download CSV:** one file with the period, agency, link, and a row per value for each section.
+- **Copy link:** copies an address with `view`, `period`, `agency`, `link`, and `detail`. The same address restores those choices when opened. The address bar follows the choices.
+- A note under the charts says what a visit and an estimated visitor are.
 
 ## Privacy and network behavior
 
-- The destination, tracking values, selected image, canvas, PNG, and SVG are not sent or stored.
-- The QR library is local and permissively licensed.
-- Image preparation, safety checks, PNG generation, and SVG generation use only local browser APIs.
-- No app API, analytics, telemetry, URL shortener, redirect, or CDN is used.
-- Shared App Shell information requests remain governed by `security.json`.
+- The web addresses, tracking choices, logo, and generated files are made in the browser and are not sent to a County server by the app.
+- When someone opens a link or scans a code, the tracker counts the visit. That is the purpose of the app.
+- Network requests from the page: the tracker API (GET), the Brand Center brand list and logo images, and the shared App Shell information sources. `security.json` lists them.
+- No analytics, telemetry, QR service, or storage of the person's choices.
 
 ## Accessibility and content
 
-- All fields have programmatic labels and help/error associations.
-- Errors use text, `aria-invalid`, and alert semantics; color is not the only signal.
-- Dynamic actions report results through the App Shell live region.
-- The preview status is polite and the preview card uses `aria-busy` while a result is checked.
-- The canvas has an image role and text alternative, and the final URL is always available as text.
-- Parameter rows are keyboard operable and have numbered group/remove labels. The searchable selector exposes a labeled listbox, active option, selected option, and visible focus.
-- The layout reflows to 320 CSS pixels without horizontal page scrolling.
-- User-facing language targets a nontechnical audience at about a sixth-grade reading level.
+- All fields have labels. Errors use text, `aria-invalid`, and alert semantics.
+- Results are announced through the App Shell live region.
+- The QR canvas has an image role and text alternative. The final link is always text.
+- The layout reflows to 320 CSS pixels without sideways scrolling.
+- Wording targets about a sixth-grade reading level.
 
 ## Testing requirements
 
-Automated checks must:
+Automated checks cover: decoding a plain QR code and codes with square and wide logos; trimming and proportions; a long link; backing and correction limits; opaque and transparent PNG and SVG output; no script or outside resource in an SVG; the `via` label, send date, and label order; Many links, including problems and the 100 address limit; the CSV cell guard; the Brand Center list and its backup; print size and the dense code note; Stats tabs, shared Stats links, and CSV; the allowlist and security rules.
 
-- decode a plain QR code;
-- decode QR codes with square and wide center images;
-- verify transparent trimming and preserved proportions;
-- cover a long QR version that includes version and alignment structures;
-- enforce backing width, height, area, and error-correction budgets;
-- verify that default PNG output is opaque;
-- verify that transparent PNG output retains an alpha channel;
-- decode downloaded PNG output after compositing it on white;
-- parse white and transparent SVG output;
-- confirm SVG files contain no script or external resource;
-- rasterize and decode SVG output with and without a center image;
-- verify that color controls are hidden while their code remains present;
-- cover destination, parameter filtering and keyboard selection, custom names, placeholders, duplicate prevention, clipboard, responsive, dark-mode, and security behavior.
+Phone scanning of a printed code is a manual check before release.
 
-Physical phone and print scanning remain release-time manual checks. Transparent output must also be tested on the exact light background where it will be placed.
+## Dependencies
 
-## Dependency
-
-The QR matrix engine is QRCode for JavaScript by Kazuhiko Arase, vendored locally with its MIT license. The local wrapper also exposes its Reed-Solomon block table and QR utilities for the center-image safety gate. The source copy and source-package notices are retained under `vendor/qrcode/`.
+QRCode for JavaScript by Kazuhiko Arase (MIT), and Chart.js 4.5.1 (MIT), both vendored locally with their licenses.

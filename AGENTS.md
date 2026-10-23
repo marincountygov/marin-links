@@ -2,41 +2,50 @@
 
 ## Architecture
 
-Marin Links is a static, browser-only MarinOS app. It starts from `marin-app-template` 2.0.9 and pins Marin App Shell 1.12.2. There is no app server, database, API, build pipeline, or runtime package manager.
+Marin Links is a static MarinOS app that makes links and QR codes for approved Marin County web pages, and shows how often they are used. It started from `marin-app-template` and pins a Marin App Shell release (see `marin.yml`). There is no app server, database, or build step.
 
-The main workflow lives in `index.html`, app behavior in `assets/app.js`, app styling in `assets/app.css`, and the destination policy in `assets/authorized-domains.js`. Image preparation is in `assets/qr-image.js`; QR structure inspection, sizing, checking, and rendering are in `assets/qr-safety.js`. The QR engine is vendored under `vendor/qrcode/`.
+Every link and QR code goes through the County tracker (`https://misc.marinhhs.org/marin-qr-tracker/`). The tracker counts a visit and then sends the person to the real page. The Stats tab reads the tracker's public, read-only JSON API.
+
+Files:
+
+- `index.html`: markup and user-facing text for the Create and Stats tabs.
+- `assets/app.js`: Create tab. URL checks, tracking fields, QR and link output, many links, print size help, downloads.
+- `assets/stats.js`: tabs and the Stats tab. Tracker requests, Chart.js charts, CSV, and shareable Stats links.
+- `assets/tracker-config.js`: tracker addresses.
+- `assets/presets.js`: agencies, campaigns, and the backup list of Marin logos.
+- `assets/authorized-domains.js`: destination allowlist.
+- `assets/qr-image.js`, `assets/qr-safety.js`: logo preparation, sizing, scan-safety checks, PNG and SVG output.
+- `vendor/qrcode/`, `vendor/chart.min.js`: local libraries. `vendor/marinos/`: App Shell, never edited in place.
 
 ## Non-negotiable behavior
 
-- Accept a complete HTTPS URL. Do not replace it with a domain picker.
-- Parse URLs with the native `URL` API.
-- Compare normalized hostnames against the structured allowlist. Never use `startsWith`, `includes`, or a regular expression that can accept `approved.example.evil.test`.
-- Allow subdomains only when `allowSubdomains` is explicitly `true`.
-- Reject credentials and nonstandard ports in destination URLs.
-- Keep all link, image, PNG, and SVG work in the browser. Do not add telemetry, uploads, URL shorteners, redirect services, or QR APIs.
-- Preserve existing query parameters and fragments. Append complete tracking name/value pairs with `URLSearchParams`.
-- Keep the tracking-name control as a searchable curated selector. The predefined names and descriptions are auditable in `assets/app.js`; use Custom for any other validated name.
-- Treat example values such as `flyer` as placeholders only. Never insert a placeholder into a URL.
-- Prevent duplicate names among helper rows. Do not rewrite or remove query parameters already present in the pasted destination.
-- Keep white as the default QR background. Transparent output may remove the fill, but it must keep the four-module quiet-zone space, the light-background warning, high error correction, protected QR structures, per-block correction budgets, and the dark-color contrast gate.
-- Preserve center-image proportions and trim only transparent outer margins. Do not return to square cropping.
-- Do not replace the automatic safety gate with one fixed image percentage.
-- Keep the QR color controls hidden in 0.2.1 while retaining their inputs, validation, rendering, and feature flag for later use.
-- Keep the final URL visible as text. The QR image must never be the only representation of the destination.
-- Keep SVG out of the center-image input unless a separate security design and sanitization implementation is approved. SVG output must remain generated locally, script-free, and free of external resources.
+- Accept a complete HTTPS URL. Parse it with the native `URL` API and compare the normalized hostname against the structured allowlist. Never use `startsWith`, `includes`, or a regular expression that can accept `approved.example.evil.test`.
+- Allow subdomains only when `allowSubdomains` is explicitly `true`. Reject credentials and nonstandard ports.
+- Every link and QR code is the tracker address with the destination in its `d` parameter. Never call the redirect address from the app: a visit counts.
+- Add the `via` label (`qr` or `link`) to every destination. Keep the send date, channel, campaign, and agency labels in one place (`collectParameters`).
+- The only network requests the app makes are the tracker's read-only API (`GET` under `/api/v1/`), the Brand Center brand list and logo images, and the shared App Shell information sources. Keep `security.json` in step with any change.
+- Logos come only from the Brand Center, at addresses that start with the Brand Center brands folder. Uploading a logo is switched off (`FEATURES.logoUpload`). Keep that code, but do not turn it on without approval.
+- Preserve existing query parameters and fragments. Append labels with `URLSearchParams`.
+- Keep the QR color picker and the Background choice switched off (`FEATURES`) while keeping their code.
+- Do not add analytics, uploads, URL shorteners, or any QR service. Do not store anything about the person using the app.
+- Keep the final link visible as text. The QR image must never be the only way to read the destination.
+- QR safety: keep high error correction, the four-module quiet zone, the white backing behind a logo, the correction budget per block, and the decode tests. Finder, timing, format, and version modules are restored over a logo. Alignment modules are not, so nothing is layered over the logo.
+- Stats must say what it counts. A visit is one time a link was opened. Estimated visitors is a guess. Neither is an exact count of people or scans. Numbers the tracker holds back show "Too few visits to show."
+- Escape cell values that start with `=`, `+`, `-`, or `@` in every CSV the app makes.
 
 ## User-facing content
 
-Write for a nontechnical audience at about a sixth-grade reading level. Use short sentences and common words. Explain terms such as tracking details with a concrete example. Avoid developer terms such as hostname, query string, MIME type, error correction, and client-side in the interface.
+Write for a nontechnical audience at about a sixth-grade reading level. Use short sentences and common words. Avoid developer terms in the interface. Do not mention any tool used to build the app in the interface, commits, pull requests, or files.
 
 ## MarinOS boundaries
 
-- Keep the five shell component hosts and the `#start[data-tab-section]` route structure.
+- Keep the five shell component hosts and the `#start[data-tab-section]` route structure. The Create and Stats tabs are inside `#start`.
 - Load `vendor/marinos/marinos.js` before all app scripts.
 - Do not edit `vendor/marinos/`; its manifest hashes must pass.
 - Do not restyle shell-owned header, banner, footer, navigation, feedback, or information-section layout from `assets/app.css`.
-- Keep the static CSP/referrer block synchronized with `security.json` by running `python3 scripts/sync-security-meta.py --write` after a reviewed policy change.
-- Keep runtime dependencies local and document their licenses.
+- Keep the static CSP block in step with `security.json`: run `python3 scripts/sync-security-meta.py --write` after a reviewed policy change.
+- Keep runtime libraries local and document their licenses.
+- Do not add this app to the MarinOS catalog unless asked to by name.
 
 ## Testing
 
@@ -47,10 +56,10 @@ bash scripts/check.sh
 bash scripts/check.sh --browser-in-memory
 ```
 
-Also run `bash scripts/check.sh --browser` in an environment where Chromium can navigate to localhost. Review keyboard use, 320 CSS pixel reflow, light and dark modes, actual phone scanning, printed output, transparent-background placement, PNG clipboard support, PNG download, and SVG download.
+Also run `bash scripts/check.sh --browser` where Chromium can reach localhost. Review keyboard use, 320 CSS pixel reflow, light and dark modes, actual phone scanning, printed output, and the downloads.
 
-Changes to rendering, colors, error correction, quiet-zone sizing, or center-image sizing must retain independent decode tests for plain, square-image, wide-image, long-link, downloaded PNG, opaque-background, transparent-background, and rasterized SVG output.
+Changes to QR rendering, error correction, quiet zone, or logo sizing must keep independent decode tests for a plain code, square and wide logos, a long link, downloaded PNG, and rasterized SVG.
 
 ## Versioning
 
-`TEMPLATE_VERSION` remains the scaffold provenance. App releases belong in `CHANGELOG.md`; do not bump the template version for normal Marin Links changes. Keep `project.status` in `marin.yml` current as the app moves from alpha to beta or live.
+`TEMPLATE_VERSION` is the starter version and stays as it is. Record app changes in `CHANGELOG.md`. Keep `project.status` in `marin.yml` current.

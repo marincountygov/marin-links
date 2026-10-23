@@ -58,30 +58,48 @@
               <h3 id="type-heading">Type</h3>
               <div class="qr-output-options" role="radiogroup" aria-labelledby="type-heading">
                 <label for="output-link"><input id="output-link" type="radio" name="output" value="link" checked> <span>Link</span></label>
+                <label for="output-bulk"><input id="output-bulk" type="radio" name="output" value="bulk"> <span>Many links</span></label>
                 <label for="output-qr"><input id="output-qr" type="radio" name="output" value="qr"> <span>QR code</span></label>
               </div>
             </section>
 
             <section class="qr-form-section" aria-labelledby="link-heading">
               <h3 id="link-heading">Web address</h3>
-              <div class="app-field">
-                <label for="destination-url">URL <span class="app-required" aria-hidden="true">*</span></label>
-                <input
-                  id="destination-url"
-                  name="destination-url"
-                  type="url"
-                  inputmode="url"
-                  autocomplete="url"
+              <div id="single-url-field">
+                <div class="app-field">
+                  <label for="destination-url">URL <span class="app-required" aria-hidden="true">*</span></label>
+                  <input
+                    id="destination-url"
+                    name="destination-url"
+                    type="url"
+                    inputmode="url"
+                    autocomplete="url"
+                    autocapitalize="none"
+                    spellcheck="false"
+                    required
+                    aria-required="true"
+                    aria-describedby="destination-error"
+                    placeholder="https://marincounty.gov/innovation">
+                  <p id="destination-mode" class="app-help-text" role="status" hidden>
+                    <strong>Any HTTPS link.</strong> You can make a QR code for any secure website.
+                  </p>
+                  <p id="destination-error" class="app-error" role="alert" hidden></p>
+                </div>
+
+              </div>
+
+              <div id="bulk-url-field" class="app-field" hidden>
+                <label for="bulk-urls">URLs <span class="app-required" aria-hidden="true">*</span></label>
+                <p id="bulk-help" class="app-help-text">One web address per line, up to 100. You can paste a column from a spreadsheet.</p>
+                <textarea
+                  id="bulk-urls"
+                  name="bulk-urls"
+                  rows="8"
                   autocapitalize="none"
                   spellcheck="false"
-                  required
-                  aria-required="true"
-                  aria-describedby="destination-error"
-                  placeholder="https://marincounty.gov/innovation">
-                <p id="destination-mode" class="app-help-text" role="status" hidden>
-                  <strong>Any HTTPS link.</strong> You can make a QR code for any secure website.
-                </p>
-                <p id="destination-error" class="app-error" role="alert" hidden></p>
+                  aria-describedby="bulk-help bulk-error"
+                  placeholder="https://marincounty.gov/innovation"></textarea>
+                <p id="bulk-error" class="app-error" role="alert" hidden></p>
               </div>
 
               <details id="allowed-websites-help" class="qr-help-details">
@@ -122,6 +140,13 @@
                     <option value="">Not set</option>
                     <option value="__new__">Start a new one</option>
                   </select>
+                </div>
+                <div class="app-field">
+                  <label for="tracking-date">Send date</label>
+                  <input id="tracking-date" name="tracking-date" type="date" aria-describedby="tracking-date-help">
+                  <p id="tracking-date-help" class="app-help-text">
+                    Adds the date to the link, so you can tell sends of the same campaign apart.
+                  </p>
                 </div>
                 <div id="tracking-campaign-field" class="app-field" hidden>
                   <label for="tracking-campaign">New campaign name</label>
@@ -216,6 +241,7 @@
             </div>
 
             <div id="preview-ready" hidden>
+              <div id="single-result">
               <div id="qr-canvas-frame" class="qr-canvas-frame" hidden>
                 <canvas id="qr-canvas" role="img" aria-label="QR code preview"></canvas>
               </div>
@@ -225,6 +251,7 @@
                 <output id="final-url" for="destination-url"></output>
               </div>
 
+              <p id="size-note" class="app-help-text qr-size-note" hidden></p>
               <p id="scan-note" class="app-help-text qr-scan-note">
                 Check the link. Scan the code with a phone before you share it.
               </p>
@@ -236,9 +263,34 @@
                     <option value="png">PNG</option>
                     <option value="svg">SVG</option>
                   </select>
+                  <label for="download-size" class="visually-hidden">Print size</label>
+                  <select id="download-size" name="download-size">
+                    <option value="1.5">Business card or sticker (1.5 in)</option>
+                    <option value="3">Flyer or handout (3 in)</option>
+                    <option value="6" selected>Poster (6 in)</option>
+                    <option value="12">Banner or sign (12 in)</option>
+                  </select>
                   <button id="download" type="button" class="primary">Download</button>
                 </div>
                 <button id="copy-link-primary" type="button" class="action-button" data-icon="link" data-copy-value="" data-copy-announce="Link copied">Copy link</button>
+              </div>
+              </div>
+
+              <div id="bulk-result" hidden>
+                <p id="bulk-summary" class="app-help-text" role="status"></p>
+                <div class="app-table-wrap">
+                  <table class="qr-bulk-table">
+                    <caption class="visually-hidden">Your links</caption>
+                    <thead>
+                      <tr><th scope="col">Web address</th><th scope="col">Your link</th></tr>
+                    </thead>
+                    <tbody id="bulk-rows"></tbody>
+                  </table>
+                </div>
+                <div class="app-actions qr-actions">
+                  <button id="bulk-copy" type="button" class="primary" data-copy-value="" data-copy-announce="Links copied">Copy all links</button>
+                  <button id="bulk-csv" type="button" class="action-button" data-icon="download">Download CSV</button>
+                </div>
               </div>
             </div>
           </aside>
@@ -269,6 +321,11 @@
             </div>
           </div>
 
+          <div class="ml-stats-actions action-group" role="group" aria-label="Share or save these numbers">
+            <button id="stats-copy-link" type="button" class="action-button" data-icon="link" data-copy-value="" data-copy-announce="Link copied">Copy link</button>
+            <button id="stats-csv" type="button" class="action-button" data-icon="download" disabled>Download CSV</button>
+          </div>
+
           <p id="stats-status" class="app-help-text" role="status" aria-live="polite">Loading Marin Links…</p>
 
           <div class="ml-stats-kpis" id="stats-kpis" hidden>
@@ -292,6 +349,13 @@
               <canvas id="stats-daily-chart" role="img" data-chart-title="Visits over time" aria-label="Visits over time"></canvas>
               <p class="app-help-text ml-stats-empty" hidden></p>
               <button type="button" class="action-button ml-chart-download" data-chart-download="daily" aria-label="Download visits chart as PNG" title="Download visits chart as PNG" data-icon="download"></button>
+            </section>
+
+            <section class="app-card">
+              <h3>QR codes and links</h3>
+              <canvas id="stats-via-chart" role="img" data-chart-title="QR codes and links" aria-label="QR codes and links"></canvas>
+              <p class="app-help-text ml-stats-empty" hidden></p>
+              <button type="button" class="action-button ml-chart-download" data-chart-download="via" aria-label="Download QR codes and links chart as PNG" title="Download QR codes and links chart as PNG" data-icon="download"></button>
             </section>
 
             <section class="app-card" id="stats-links-card">
@@ -329,9 +393,12 @@
           <p>
             Marin Links makes links and QR codes for approved Marin County websites. Each one counts how many times people use it. The Stats tab shows those counts.
           </p>
-          <h3>Link or QR code</h3>
+          <h3>Link, QR code, or many links</h3>
           <p>
-            Choose Link to get a web address you can paste into an email or page. Choose QR code to get a picture you can print. Both go through the County tracker so visits can be counted.
+            Choose Link to get a web address you can paste into an email or page. Choose QR code to get a picture you can print. Choose Many links to paste a list of web addresses and get a link for each one, with a CSV file you can save. All of them go through the County tracker so visits can be counted.
+          </p>
+          <p>
+            Marin Links adds a small label to each web address, <code>via=link</code> or <code>via=qr</code>. Stats uses it to show how many visits came from QR codes and how many from links.
           </p>
           <h3>Using other websites</h3>
           <p>
@@ -344,11 +411,19 @@
           </p>
           <h3>Tracking details</h3>
           <p>
-            Tracking details add short labels to a link. The Stats tab can then show visits by label, such as a poster, card, or sign.
+            Tracking details add short labels to a link. The Stats tab can then show visits by label, such as a poster, card, or sign. The send date is added in front of the version label, like <code>261023</code>, so you can tell sends of the same campaign apart.
           </p>
           <h3>Counts</h3>
           <p>
             A visit is one time someone opens the link. Estimated visitors is a guess at how many people that was. It is not exact. Some visits come from automated tools, not people.
+          </p>
+          <h3>Stats</h3>
+          <p>
+            The Stats tab shows visits over time, top links, QR codes and links, tracking details, and browsers. Choose a time, agency, or link to narrow the numbers. Copy link shares your choices with someone else. Download CSV saves the numbers for a spreadsheet.
+          </p>
+          <h3>Printing a QR code</h3>
+          <p>
+            Pick the size you plan to print. The PNG is made at that size. Marin Links also tells you the smallest size that scans well. A crowded code needs a bigger print, so a shorter link or fewer tracking details helps.
           </p>
           <h3>File types</h3>
           <p>

@@ -44,11 +44,16 @@
         .filter((option) => option.value !== CUSTOM_PARAMETER_VALUE)
         .map((option) => [option.value, option.title])
     ),
-    agency: "Agency"
+    agency: "Agency",
+    division: "Division"
   });
   const OTHER_VALUE = "__other__";
   const NEW_CAMPAIGN_VALUE = "__new__";
   const LOGO_UPLOAD_VALUE = "__upload__";
+  const QUIET_ZONE_MODULES = 4;
+  const MIN_MODULE_INCHES = 0.0197;
+  const DENSE_QR_VERSION = 13;
+  const PRINT_DPI = 300;
   // Common answers. A short list keeps spelling the same, so Stats groups visits together.
   const VALUE_OPTIONS = Object.freeze({
     utm_source: [
@@ -89,6 +94,7 @@
 
   const state = {
     parameterId: 0,
+    bulkRows: [],
     updateTimer: null,
     imageToken: 0,
     generationToken: 0,
@@ -238,7 +244,12 @@
     return state.mode === "qr";
   }
 
+  function isBulkMode() {
+    return state.mode === "bulk";
+  }
+
   function emptyMessage() {
+    if (isBulkMode()) return "Add web addresses to make links.";
     return isQrMode() ? "Add a web address to make a QR code." : "Add a web address to make a link.";
   }
 
@@ -250,8 +261,16 @@
 
   function applyMode() {
     const qr = isQrMode();
+    const bulk = isBulkMode();
+    // Many links shows its results across the full width, under the form.
+    refs.panelCreate.dataset.mode = state.mode;
+    refs.singleUrlField.hidden = bulk;
+    refs.bulkUrlField.hidden = !bulk;
+    refs.singleResult.hidden = bulk;
+    refs.bulkResult.hidden = !bulk;
     refs.designSection.hidden = !qr;
     refs.canvasFrame.hidden = !qr;
+    if (refs.sizeNote) syncDownloadControls();
     refs.downloadGroup.hidden = !qr;
     refs.scanNote.hidden = !qr;
   }
@@ -293,10 +312,12 @@
     trigger.setAttribute("aria-haspopup", "listbox");
     trigger.setAttribute("aria-expanded", "false");
     trigger.setAttribute("aria-describedby", errorId);
-    trigger.setAttribute("aria-labelledby", label.id);
 
     const triggerText = document.createElement("span");
     triggerText.className = "qr-parameter-picker__selection";
+    triggerText.id = `parameter-selection-${id}`;
+    // The button is named by its label and the choice it shows, so its visible words are in its name.
+    trigger.setAttribute("aria-labelledby", `${label.id} ${triggerText.id}`);
     const triggerName = document.createElement("span");
     triggerName.className = "qr-parameter-picker__name";
     const triggerDescription = document.createElement("span");
@@ -785,7 +806,13 @@
 
   function fillPresetLists() {
     const { agencies, campaigns } = window.MarinLinksPresets;
-    agencies.forEach(({ value, name }) => refs.agency.append(new Option(name, value)));
+    // A department, then its divisions right after it ("Health and Human Services: Public Health").
+    agencies.forEach(({ value, name, divisions = [] }) => {
+      refs.agency.append(new Option(name, value));
+      divisions.forEach((division) => {
+        refs.agency.append(new Option(`${name}: ${division.name}`, `${value}/${division.value}`));
+      });
+    });
     // Only Brand Center logos for now. The upload code stays, switched off.
     const upload = refs.logoChoice.querySelector(`option[value="${LOGO_UPLOAD_VALUE}"]`);
     if (!FEATURES.logoUpload) {
@@ -824,8 +851,24 @@
       seenNames.add("utm_campaign");
     }
     if (refs.agency.value) {
-      parameters.push({ name: "agency", value: refs.agency.value });
+      // A division is stored as "agency/division". The agency label always carries the whole department.
+      const [agency, division] = refs.agency.value.split("/");
+      parameters.push({ name: "agency", value: agency });
       seenNames.add("agency");
+      if (division) {
+        parameters.push({ name: "division", value: division });
+        seenNames.add("division");
+      }
+    }
+    // Lets Stats tell printed QR codes apart from shared links.
+    parameters.push({ name: "via", value: isQrMode() ? "qr" : "link" });
+    seenNames.add("via");
+    // The send date goes in front of any "which version" value (YYMMDD, like 261023).
+    const dateCode = refs.date.value ? refs.date.value.replaceAll("-", "").slice(2) : "";
+    const dateParameter = dateCode ? { name: "utm_content", value: dateCode } : null;
+    if (dateParameter) {
+      parameters.push(dateParameter);
+      seenNames.add("utm_content");
     }
 
     refs.parameterList.querySelectorAll(".qr-parameter-row").forEach((row) => {
@@ -870,6 +913,11 @@
         return;
       }
 
+      if (name === "utm_content" && dateParameter) {
+        dateParameter.value = `${dateCode}_${value}`;
+        return;
+      }
+
       if (seenNames.has(name)) {
         setParameterRowError(row, [trigger, customInput], "Use each tracking detail name only once.");
         valid = false;
@@ -903,7 +951,12 @@
     refs.finalUrl.value = "";
     refs.finalUrl.textContent = "";
     refs.copyLink.dataset.copyValue = "";
+    state.bulkRows = [];
+    refs.bulkCopy.dataset.copyValue = "";
+    refs.bulkCopy.disabled = true;
+    refs.bulkCsv.disabled = true;
     setExportActionsEnabled(false);
+    syncDownloadControls();
   }
 
   function buildQrModel(finalUrl) {
@@ -953,6 +1006,13 @@
 
   async function updatePreview() {
     cancelScheduledUpdate();
+    if (isBulkMode()) {
+      state.generationToken += 1;
+      state.generating = false;
+      refs.previewCard.removeAttribute("aria-busy");
+      updateBulk();
+      return;
+    }
     const token = ++state.generationToken;
     state.generating = true;
     setExportActionsEnabled(false);
@@ -1043,6 +1103,7 @@
         finalUrl
       });
       refs.canvas.dataset.finalUrl = finalUrl;
+      showPrintAdvice(model);
       showLink(finalUrl);
     } finally {
       if (token === state.generationToken) {
@@ -1051,6 +1112,117 @@
         setExportActionsEnabled(Boolean(state.finalUrl));
       }
     }
+  }
+
+  // ---- Many links ----
+
+  const MAX_BULK_LINES = 100;
+
+  // Each line can be a plain address, or a spreadsheet row (the first address in it is used).
+  function pickAddress(line) {
+    const cells = line.split(/[\t,;]/).map((cell) => cell.trim().replace(/^"|"$/g, "").trim()).filter(Boolean);
+    return cells.find((cell) => /^https?:\/\//i.test(cell)) || cells[0] || "";
+  }
+
+  function updateBulk() {
+    clearFieldError(refs.bulkUrls, refs.bulkError);
+    const addresses = refs.bulkUrls.value.split(/\r?\n/).map(pickAddress).filter(Boolean);
+    if (!addresses.length) {
+      showEmpty(emptyMessage());
+      return;
+    }
+    if (addresses.length > MAX_BULK_LINES) {
+      setFieldError(refs.bulkUrls, refs.bulkError, `Use up to ${MAX_BULK_LINES} web addresses at a time. You entered ${addresses.length}.`);
+      showEmpty("Use fewer web addresses to make links.");
+      return;
+    }
+    const parameterResult = collectParameters();
+    if (!parameterResult.valid) {
+      showEmpty("Fix the tracking fields to make links.");
+      return;
+    }
+
+    state.bulkRows = addresses.map((address) => {
+      const destination = parseDestination(address);
+      if (destination.error) return { address, link: "", problem: destination.error };
+      const final = new URL(destination.url.href);
+      parameterResult.parameters.forEach(({ name, value }) => final.searchParams.append(name, value));
+      return { address, link: buildTrackedUrl(final.href), problem: "" };
+    });
+
+    refs.bulkRowsBody.textContent = "";
+    state.bulkRows.forEach((row) => {
+      const tr = document.createElement("tr");
+      const address = document.createElement("td");
+      address.textContent = row.address;
+      const link = document.createElement("td");
+      if (row.problem) {
+        const problem = document.createElement("span");
+        problem.className = "app-error";
+        problem.textContent = row.problem;
+        link.append(problem);
+      } else {
+        link.className = "qr-bulk-link";
+        link.textContent = row.link;
+      }
+      tr.append(address, link);
+      refs.bulkRowsBody.append(tr);
+    });
+
+    const made = state.bulkRows.filter((row) => !row.problem);
+    refs.bulkSummary.textContent = made.length === state.bulkRows.length
+      ? `${made.length} ${made.length === 1 ? "link" : "links"} made.`
+      : `${made.length} of ${state.bulkRows.length} links made. Fix the ones that show a problem.`;
+    refs.bulkCopy.dataset.copyValue = made.map((row) => row.link).join("\n");
+    refs.bulkCopy.disabled = made.length === 0;
+    refs.bulkCsv.disabled = state.bulkRows.length === 0;
+    refs.previewEmpty.hidden = true;
+    refs.previewReady.hidden = false;
+  }
+
+  // A cell that starts with = + - or @ could run as a formula in a spreadsheet, so it gets a leading apostrophe.
+  function csvCell(value) {
+    let text = String(value ?? "");
+    if (/^[=+\-@\t\r]/.test(text)) text = `'${text}`;
+    return /[",\n\r]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text;
+  }
+
+  function downloadBulkCsv() {
+    if (!state.bulkRows.length) return;
+    const rows = [["Web address", "Your link", "Problem"], ...state.bulkRows.map((row) => [row.address, row.link, row.problem])];
+    const text = rows.map((row) => row.map(csvCell).join(",")).join("\r\n") + "\r\n";
+    saveBlob(new Blob(["\uFEFF", text], { type: "text/csv;charset=utf-8" }), "marin-links.csv");
+    announce("CSV downloaded.");
+  }
+
+  // How small the code can be printed, and a note when it is crowded. Each square should be about half a millimeter.
+  function showPrintAdvice(model) {
+    const squaresAcross = model.moduleCount + (QUIET_ZONE_MODULES * 2);
+    const minimumInches = Math.ceil(squaresAcross * MIN_MODULE_INCHES * 10) / 10;
+    let text = `Print this code at least ${minimumInches} inches wide.`;
+    if (model.typeNumber >= DENSE_QR_VERSION) {
+      text += " This code is crowded. A shorter link or fewer tracking details makes it easier to scan.";
+    }
+    refs.sizeNote.textContent = text;
+    refs.sizeNote.dataset.dense = String(model.typeNumber >= DENSE_QR_VERSION);
+
+    // Sizes that are too small for this code cannot be picked.
+    let firstUsable = null;
+    [...refs.downloadSize.options].forEach((option) => {
+      const tooSmall = Number(option.value) < minimumInches;
+      option.disabled = tooSmall;
+      option.textContent = option.textContent.replace(/ – too small$/, "") + (tooSmall ? " – too small" : "");
+      if (!tooSmall && firstUsable === null) firstUsable = option;
+    });
+    if (refs.downloadSize.selectedOptions[0]?.disabled && firstUsable) refs.downloadSize.value = firstUsable.value;
+    state.minimumInches = minimumInches;
+    syncDownloadControls();
+  }
+
+  // The size only matters for PNG. SVG stays sharp at any size.
+  function syncDownloadControls() {
+    refs.downloadSize.hidden = refs.downloadFormat.value === "svg";
+    refs.sizeNote.hidden = !isQrMode() || !state.finalUrl;
   }
 
   function showLink(finalUrl) {
@@ -1073,9 +1245,9 @@
     }, 300);
   }
 
-  function canvasToBlob() {
+  function canvasToBlob(canvas = refs.canvas) {
     return new Promise((resolve, reject) => {
-      refs.canvas.toBlob((blob) => {
+      canvas.toBlob((blob) => {
         if (blob) resolve(blob);
         else reject(new Error("The PNG file could not be made."));
       }, "image/png");
@@ -1117,7 +1289,24 @@
     refs.download.disabled = true;
 
     try {
-      saveBlob(format === "svg" ? svgToBlob() : await canvasToBlob(), `marin-links.${format}`);
+      if (format === "svg") {
+        saveBlob(svgToBlob(), "marin-links.svg");
+      } else {
+        // PNG is made at the chosen print size, 300 pixels to the inch.
+        const inches = Number(refs.downloadSize.value) || 6;
+        const result = state.renderResult;
+        const canvas = document.createElement("canvas");
+        window.MarinQrSafety.render(
+          canvas,
+          result.model,
+          result.color,
+          result.preparedImage,
+          result.logoPlan,
+          Math.round(inches * PRINT_DPI),
+          { transparentBackground: result.transparentBackground }
+        );
+        saveBlob(await canvasToBlob(canvas), `marin-links-${inches}in.png`);
+      }
       announce(`${format.toUpperCase()} downloaded.`);
     } catch (error) {
       console.error(error);
@@ -1285,7 +1474,8 @@
 
   // The browser can bring back form choices after a refresh or Back. Read them, so the page matches what is shown.
   function syncFromForm() {
-    state.mode = refs.outputs.find((radio) => radio.checked)?.value === "qr" ? "qr" : "link";
+    const chosenType = refs.outputs.find((radio) => radio.checked)?.value;
+    state.mode = chosenType === "qr" || chosenType === "bulk" ? chosenType : "link";
     applyMode();
     refs.campaignField.hidden = refs.campaignChoice.value !== NEW_CAMPAIGN_VALUE;
 
@@ -1297,7 +1487,7 @@
     }
 
     showEmpty(emptyMessage());
-    if (refs.destination.value.trim()) void updatePreview();
+    if (refs.destination.value.trim() || refs.bulkUrls.value.trim()) void updatePreview();
   }
 
   function resetForm() {
@@ -1309,6 +1499,7 @@
 
     refs.form.reset();
     clearFieldError(refs.destination, refs.destinationError);
+    clearFieldError(refs.bulkUrls, refs.bulkError);
     state.mode = "link";
     applyMode();
 
@@ -1333,6 +1524,9 @@
     });
 
     refs.destination.addEventListener("input", scheduleUpdate);
+    refs.bulkUrls.addEventListener("input", scheduleUpdate);
+    refs.bulkCopy.addEventListener("pointerdown", cancelScheduledUpdate);
+    refs.bulkCsv.addEventListener("click", downloadBulkCsv);
     document.querySelectorAll('input[name="background"]').forEach((radio) => {
       radio.addEventListener("change", scheduleUpdate);
     });
@@ -1357,6 +1551,7 @@
     refs.channel.addEventListener("change", scheduleUpdate);
     refs.campaign.addEventListener("input", scheduleUpdate);
     refs.agency.addEventListener("change", scheduleUpdate);
+    refs.date.addEventListener("change", scheduleUpdate);
     refs.campaignChoice.addEventListener("change", () => {
       const choice = refs.campaignChoice.value;
       refs.campaignField.hidden = choice !== NEW_CAMPAIGN_VALUE;
@@ -1394,11 +1589,23 @@
     refs.copyLink.addEventListener("pointerdown", cancelScheduledUpdate);
     refs.resetForm.addEventListener("click", resetForm);
     refs.download.addEventListener("click", download);
+    refs.downloadFormat.addEventListener("change", syncDownloadControls);
   }
 
   function start() {
     refs = {
       form: byId("qr-form"),
+      panelCreate: byId("panel-create"),
+      singleUrlField: byId("single-url-field"),
+      bulkUrlField: byId("bulk-url-field"),
+      bulkUrls: byId("bulk-urls"),
+      bulkError: byId("bulk-error"),
+      singleResult: byId("single-result"),
+      bulkResult: byId("bulk-result"),
+      bulkSummary: byId("bulk-summary"),
+      bulkRowsBody: byId("bulk-rows"),
+      bulkCopy: byId("bulk-copy"),
+      bulkCsv: byId("bulk-csv"),
       destination: byId("destination-url"),
       destinationError: byId("destination-error"),
       destinationMode: byId("destination-mode"),
@@ -1407,6 +1614,7 @@
       addParameter: byId("add-parameter"),
       channel: byId("tracking-channel"),
       agency: byId("tracking-agency"),
+      date: byId("tracking-date"),
       campaignChoice: byId("tracking-campaign-choice"),
       campaignField: byId("tracking-campaign-field"),
       campaign: byId("tracking-campaign"),
@@ -1439,6 +1647,8 @@
       finalUrl: byId("final-url"),
       downloadGroup: byId("download-group"),
       downloadFormat: byId("download-format"),
+      downloadSize: byId("download-size"),
+      sizeNote: byId("size-note"),
       download: byId("download")
     };
 

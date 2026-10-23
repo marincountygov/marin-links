@@ -13,12 +13,15 @@ Open `http://127.0.0.1:8765/`. No application build step is required.
 ## Source ownership
 
 - `index.html`: workflow markup and user-facing content.
-- `assets/app.js`: URL validation, searchable tracking selector, workflow state, and export.
-- `assets/app.css`: workflow-only styles.
+- `assets/app.js`: Create tab. URL validation, tracking fields, QR and link output, many links, print size help, downloads.
+- `assets/stats.js`: tabs and the Stats tab. Tracker requests, Chart.js charts, CSV, and shared Stats links.
+- `assets/tracker-config.js`: tracker addresses.
+- `assets/presets.js`: agencies, saved campaigns, and the backup list of Marin logos. Add a saved campaign here. To change the agency list, update it from the County's list of agencies and departments (`marin-county-agencies-departments.json`), keeping its order.
+- `assets/app.css`: styles for this app only.
 - `assets/authorized-domains.js`: destination policy.
-- `assets/qr-image.js`: local image preparation and transparent-edge trimming.
+- `assets/qr-image.js`: local logo preparation and transparent-edge trimming.
 - `assets/qr-safety.js`: QR structure mapping, automatic sizing, checking, and rendering.
-- `vendor/qrcode/`: reviewed local QR dependency.
+- `vendor/qrcode/`: reviewed local QR dependency. `vendor/chart.min.js`: local Chart.js.
 - `vendor/marinos/`: installed App Shell release; do not edit.
 
 ## Change the allowlist
@@ -76,7 +79,15 @@ The QR library wrapper exposes `QRRSBlock` and `QRUtil` only so the app can insp
 
 ## Background and SVG output
 
-White is the default background. When the checkbox is selected, `assets/qr-safety.js` clears the alpha-capable canvas instead of painting white. The four-module quiet zone still exists as transparent space. Do not remove the plain-language warning that transparent output needs a light, plain surface. The center-image backing must remain white.
+White is the default background. The Background choice (White or Transparent) is switched off (`FEATURES.backgroundOption`). When it is on and Transparent is selected, `assets/qr-safety.js` clears the alpha-capable canvas instead of painting white. The four-module quiet zone still exists as transparent space. Keep the plain-language note that transparent output needs a light, plain surface. The logo backing must remain white.
+
+## Logos from the Brand Center
+
+The Logo dropdown reads `https://marincountygov.github.io/marin-brand/brands.json`, which the Brand Center generator writes. `assets/presets.js` keeps a backup list for when the list cannot be loaded. Only files under `.../marin-brand/brands/` are used. When a brand is added to the Brand Center, it appears here on its own. Update the backup list now and then.
+
+## Stats and the tracker
+
+`assets/stats.js` calls the tracker's public API. The API takes one filter pair at a time, which is why Stats filters by agency only. The QR codes and links chart reads the `via` label that Create adds. Keep the shared Stats link parameters (`view`, `period`, `agency`, `link`, `detail`) in step with `statsAddress()`.
 
 `MarinQrSafety.toSvg()` must use the same checked model and center-image plan as the canvas. Keep QR modules as vector paths. Any center image must be embedded as a local PNG data URL, never an external reference. Keep the 1,600-pixel longest-side limit unless print tests justify a reviewed change. Exported SVG files must remain script-free.
 
@@ -87,7 +98,7 @@ Rendering changes require tests that:
 - reject scripts and external image links;
 - rasterize and decode SVG files with and without center images.
 
-## Hidden QR color feature
+## Hidden features
 
 `FEATURES.qrColorPicker` in `assets/app.js` is `false` for 0.2.1. The HTML color field also has `hidden` so it stays unavailable if JavaScript fails. Keep the inputs, validation, contrast gate, rendering path, and tests in place until the feature is approved for release. Enabling it later should require changing the feature flag and reviewing the user-facing help text, not rebuilding the color system.
 
@@ -97,16 +108,17 @@ For each release, verify:
 
 1. Paste every allowed base domain and at least one permitted subdomain.
 2. Reject HTTP, credentials, ports, deceptive suffixes, and a subdomain of `marincountygov.github.io`.
-3. Add tracking values to a link that already has a query and fragment. Filter the parameter list by typing, test Custom, and verify that example placeholders are not inserted.
+3. Add tracking to a link that already has a query and fragment. Try Channel, Agency, Campaign (saved and new), Send date, and an extra detail with a dropdown value and "Something else". Verify that example placeholders are not inserted and the send date joins a "which version" value.
 4. Use only the keyboard, including filtering and selecting parameter names, opening details, adding/removing tracking rows, choosing a file, and running every action.
 5. Review at 320 CSS pixels and 200% zoom without horizontal scrolling.
 6. Review light, dark, forced-colors, and reduced-motion settings.
-7. Download PNG and SVG output in the supported County browsers.
-8. Check white and transparent output. Place transparent output on the exact light, plain background planned for use.
-9. Scan a plain QR, a square-image QR, and a wide-image QR on at least two phone camera apps.
+7. Download PNG at each print size and SVG in the supported County browsers. Check the smallest print size note and the crowded code note.
+8. Try Many links with good and bad addresses, Copy all links, and Download CSV. Open the CSV in a spreadsheet.
+9. Scan a plain QR and a QR with each Marin logo on at least two phone camera apps.
 10. Print each PNG and SVG at its planned size and scan the printed copy.
-11. Confirm that no link, tracking value, image, PNG, or SVG leaves the browser in the Network panel.
-12. Review all user-facing text for a nontechnical audience at about a sixth-grade reading level.
+11. Open the Network panel. Confirm requests go only to the tracker API, the Brand Center, and the shared MarinOS sources, and that no web address or file is sent.
+12. On Stats, change the time, agency, and link. Use Copy link, open it in a new tab, and download the CSV.
+13. Review all user-facing text for a nontechnical audience at about a sixth-grade reading level.
 
 ## Security metadata
 
@@ -136,4 +148,4 @@ Update `vendor/qrcode/README.md`, license files, `THIRD_PARTY_NOTICES.md`, and b
 
 ## Deployment
 
-The intended URL is `https://marincountygov.github.io/marin-links/`. Publish the repository through the approved GitHub Pages process. Keep `.nojekyll` so `.well-known/security.txt` is deployed. Confirm the published CSP, security file, App Shell information sections, clipboard behavior, transparent output, and PNG/SVG downloads after deployment.
+The intended URL is `https://marincountygov.github.io/marin-links/`. Publish the repository through the approved GitHub Pages process. Keep `.nojekyll` so `.well-known/security.txt` is deployed. Pages deploys from the `main` branch, root folder. Confirm the published CSP, security file, App Shell information sections, the Logo list, Stats, and PNG/SVG downloads after deployment.

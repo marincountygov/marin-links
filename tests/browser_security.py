@@ -9,12 +9,18 @@ import shutil
 import sys
 from urllib.parse import urlsplit
 
-from browser_smoke import ROOT, CATALOG, COMMITS, serve, ready, require
+from browser_smoke import ROOT, CATALOG, COMMITS, BRAND_CENTER_ROOT, TRACKER_API, fulfill_app_data, serve, ready, require
 
 API_URL = "https://api.github.com/repos/marincountygov/marin-links/commits?per_page=15"
 CATALOG_URL = "https://marincountygov.github.io/marin-os/catalog.json"
 BLOCKED_URL = "https://blocked.example/security-probe"
 BLOCKED_CATALOG_URL = "https://marincountygov.github.io/not-the-catalog.json"
+BRAND_LIST_URL = BRAND_CENTER_ROOT + "brands.json"
+BRAND_LOGO_URL = BRAND_CENTER_ROOT + "brands/alpha-brand/assets/qr-code-logos/square.png"
+TRACKER_URL = TRACKER_API + "summary"
+BLOCKED_BRAND_URL = BRAND_CENTER_ROOT + "other.json"
+BLOCKED_TRACKER_URL = "https://misc.marinhhs.org/some-other-app/data.json"
+BLOCKED_IMAGE_URL = "https://example.com/logo.png"
 
 
 class PolicySource(HTMLParser):
@@ -66,6 +72,8 @@ def run(in_memory: bool = False) -> None:
                 elif url.hostname == "api.github.com" and url.path.endswith("/commits"):
                     route.fulfill(status=200, content_type="application/json", body=json.dumps(COMMITS),
                                   headers={"Access-Control-Allow-Origin": "*"})
+                elif fulfill_app_data(route):
+                    pass
                 else:
                     # Denied loads must be blocked by CSP, not merely by this test route.
                     unexpected.append(route.request.url)
@@ -90,16 +98,33 @@ def run(in_memory: bool = False) -> None:
                   blocked: event.blockedURI, disposition: event.disposition});
               });
             }""")
-            result = page.evaluate("""async ([api, catalog, denied, wrongPath, favicon]) => {
+            result = page.evaluate("""async ([api, catalog, denied, wrongPath, favicon, brandList, tracker, brandLogo, deniedBrand, deniedTracker, deniedImage]) => {
               const allowed = [];
               for (const url of [api, catalog]) {
                 const response = await fetch(url);
                 allowed.push(response.ok && Array.isArray(await response.json()));
               }
+              // The Brand Center list and the tracker's read-only API are allowed.
+              for (const url of [brandList, tracker]) {
+                const response = await fetch(url);
+                allowed.push(response.ok && typeof (await response.json()) === 'object');
+              }
               let rejected = 0;
-              for (const url of [denied, wrongPath]) {
+              for (const url of [denied, wrongPath, deniedBrand, deniedTracker]) {
                 try { await fetch(url); } catch (_) { rejected += 1; }
               }
+              const logo = new Image();
+              const logoLoaded = await new Promise((resolve) => {
+                logo.onload = () => resolve(true);
+                logo.onerror = () => resolve(false);
+                logo.src = brandLogo;
+              });
+              const outside = new Image();
+              const outsideLoaded = await new Promise((resolve) => {
+                outside.onload = () => resolve(true);
+                outside.onerror = () => resolve(false);
+                outside.src = deniedImage;
+              });
               const image = new Image();
               const loaded = new Promise((resolve, reject) => {
                 image.onload = () => resolve(image.naturalWidth > 0);
@@ -123,14 +148,20 @@ def run(in_memory: bool = False) -> None:
               document.body.appendChild(button);
               button.click();
               button.remove();
-              return {allowed, rejected, imageLoaded};
-            }""", [API_URL, CATALOG_URL, BLOCKED_URL, BLOCKED_CATALOG_URL, source.favicon])
-            require(result["allowed"] == [True, True], "Configured feeds were blocked by CSP/CORS")
-            require(result["rejected"] == 2, "Unapproved connection succeeded")
+              return {allowed, rejected, imageLoaded, logoLoaded, outsideLoaded};
+            }""", [API_URL, CATALOG_URL, BLOCKED_URL, BLOCKED_CATALOG_URL, source.favicon,
+                   BRAND_LIST_URL, TRACKER_URL, BRAND_LOGO_URL, BLOCKED_BRAND_URL, BLOCKED_TRACKER_URL,
+                   BLOCKED_IMAGE_URL])
+            require(result["allowed"] == [True, True, True, True],
+                    "Configured feeds, the Brand Center list, or the tracker API were blocked by CSP/CORS")
+            require(result["rejected"] == 4, "Unapproved connection succeeded")
+            require(result["logoLoaded"], "A Brand Center logo was blocked by the image policy")
+            require(not result["outsideLoaded"], "An image from outside the Brand Center loaded")
             require(result["imageLoaded"], "The data: image allowance failed")
             page.wait_for_function("""() => {
               const v = window.__policyViolations;
-              return v.filter(x => x.directive === 'connect-src').length >= 2
+              return v.filter(x => x.directive === 'connect-src').length >= 4
+                && v.some(x => x.directive === 'img-src')
                 && v.filter(x => x.directive === 'script-src-elem').length >= 2
                 && v.some(x => x.directive === 'script-src-attr')
                 && v.some(x => x.directive === 'style-src-elem');
