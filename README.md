@@ -85,7 +85,8 @@ assets/
   app.js                   Create tab: validation, tracking, QR, links, many links, downloads
   stats.js                 Tabs and the Stats tab: tracker requests, charts, CSV, shared links
   tracker-config.js        Tracker addresses
-  presets.js               Agencies, saved campaigns, and the backup list of logos
+  agencies.js              Agency list (generated from data/agencies.json, do not edit)
+  presets.js               Saved campaigns and the backup list of logos
   authorized-domains.js    Auditable destination allowlist
   qr-image.js              Local logo preparation and transparent-edge trim
   qr-safety.js             QR mapping, safety checks, PNG rendering, and SVG output

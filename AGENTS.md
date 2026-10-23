@@ -12,7 +12,8 @@ Files:
 - `assets/app.js`: Create tab. URL checks, tracking fields, QR and link output, many links, print size help, downloads.
 - `assets/stats.js`: tabs and the Stats tab. Tracker requests, Chart.js charts, CSV, and shareable Stats links.
 - `assets/tracker-config.js`: tracker addresses.
-- `assets/presets.js`: agencies, campaigns, and the backup list of Marin logos.
+- `assets/presets.js`: saved campaigns and the backup list of Marin logos.
+- `data/agencies.json`: the master list of agencies, departments, and divisions (see `data/README.md`). `assets/agencies.js` is generated from it by `scripts/build-agencies.py`. Edit the JSON, never the generated file. Never rename or reuse an id.
 - `assets/authorized-domains.js`: destination allowlist.
 - `assets/qr-image.js`, `assets/qr-safety.js`: logo preparation, sizing, scan-safety checks, PNG and SVG output.
 - `vendor/qrcode/`, `vendor/chart.min.js`: local libraries. `vendor/marinos/`: App Shell, never edited in place.

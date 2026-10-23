@@ -61,7 +61,7 @@ The final link is the tracker address plus `?d=` and the percent-encoded destina
 - A custom name starts with a letter or number, uses letters, numbers, underscores, hyphens, periods, or tildes, and is at most 64 characters.
 - A name may be used only once, counting Channel, Campaign, Agency, Division, `via`, and the send date.
 - Up to 20 extra tracking details.
-- The Agency list is the County's list of agencies and departments, in its own order. A department's divisions follow it as "Department: Division" (for example, Health and Human Services: Public Health). Saved campaigns and the list are in `assets/presets.js`.
+- The Agency list is the County's list of agencies and departments, in its own order. A department's divisions follow it as "Department: Division" (for example, Health and Human Services: Public Health). The list is the master list in `data/agencies.json`, built into `assets/agencies.js`. Saved campaigns are in `assets/presets.js`.
 - Example values appear only as placeholder text and are never added to a link.
 
 ### Logo (QR code only)
