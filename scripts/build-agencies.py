@@ -18,6 +18,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SOURCE = ROOT / "data" / "agencies.json"
 OUTPUT = ROOT / "assets" / "agencies.js"
 ID_PATTERN = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*(/[a-z0-9]+(-[a-z0-9]+)*)?$")
+CODE_PATTERN = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
 HEADER = """/*
  * County of Marin agencies and departments.
  * Generated from data/agencies.json by scripts/build-agencies.py. Do not edit.
@@ -27,7 +28,7 @@ HEADER = """/*
 (() => {
   "use strict";
 
-  // Each department has its divisions, in the list's own order. A division is picked as "department/division".
+  // Each department has its divisions, in the list's own order. A division is picked as "department code/division code".
   const AGENCIES = """
 FOOTER = """;
 
@@ -48,9 +49,10 @@ def problems_in(data: dict) -> list[str]:
     if not isinstance(agencies, list) or not agencies:
         return problems + ["agencies must be a list with at least one item"]
     by_id: dict[str, dict] = {}
+    codes: set[str] = set()
     for index, item in enumerate(agencies):
         label = f"agencies[{index}]"
-        for key in ("id", "name", "type", "parent", "url", "status"):
+        for key in ("id", "code", "name", "type", "parent", "url", "status"):
             if key not in item:
                 problems.append(f"{label} is missing {key}")
         agency_id = item.get("id", "")
@@ -60,6 +62,12 @@ def problems_in(data: dict) -> list[str]:
         if agency_id in by_id:
             problems.append(f"{label}: id is used twice")
         by_id[agency_id] = item
+        code = item.get("code", "")
+        if not CODE_PATTERN.match(code or ""):
+            problems.append(f"{label}: code must be lowercase letters, numbers, and hyphens")
+        if code in codes:
+            problems.append(f"{label}: code is used twice")
+        codes.add(code)
         if item.get("type") not in ("department", "division"):
             problems.append(f"{label}: type must be department or division")
         if item.get("status") not in ("active", "retired"):
@@ -87,9 +95,9 @@ def build_list(data: dict) -> list[dict]:
     active = [item for item in data["agencies"] if item["status"] == "active"]
     result = []
     for department in (item for item in active if item["type"] == "department"):
-        entry = {"value": department["id"], "name": department["name"]}
+        entry = {"value": department["code"], "id": department["id"], "name": department["name"]}
         divisions = [
-            {"value": item["id"].split("/", 1)[1], "name": item["name"]}
+            {"value": item["code"], "id": item["id"].split("/", 1)[1], "name": item["name"]}
             for item in active if item["type"] == "division" and item["parent"] == department["id"]
         ]
         if divisions:

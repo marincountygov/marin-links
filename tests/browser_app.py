@@ -305,23 +305,23 @@ def check_basics_and_tracking(context, base_url: str) -> None:
         require(page.locator("#scan-note").is_hidden() and page.locator("#size-note").is_hidden(),
                 "QR-only notes show in Link mode")
 
-        page.locator("#tracking-channel").select_option("print")
-        page.locator("#tracking-agency").select_option("hhs")
+        page.locator("#tracking-channel").select_option("ch-05")
+        page.locator("#tracking-agency").select_option("ag-14")
         page.locator("#tracking-campaign-choice").select_option(label="Weather Together")
-        labels = [("utm_medium", "print"), ("utm_campaign", "weather_together"), ("agency", "hhs"), ("via", "link")]
+        labels = [("utm_medium", "ch-05"), ("utm_campaign", "cmp-02"), ("agency", "ag-14"), ("via", "link")]
         wait_for_link(page, expected_link(base, labels))
 
         # A division adds its own label, and the agency label still names the whole department.
         require(page.locator("#tracking-agency option").count() == 1 + 25 + 20, "Agency list differs from the County list")
-        page.locator("#tracking-agency").select_option("hhs/public-health")
-        with_division = labels[:3] + [("division", "public-health")] + labels[3:]
+        page.locator("#tracking-agency").select_option("ag-14/dv-10")
+        with_division = labels[:3] + [("division", "dv-10")] + labels[3:]
         wait_for_link(page, expected_link(base, with_division))
-        page.locator("#tracking-agency").select_option("hhs")
+        page.locator("#tracking-agency").select_option("ag-14")
         wait_for_link(page, expected_link(base, labels))
 
         page.locator("#tracking-campaign-choice").select_option("__new__")
         page.locator("#tracking-campaign").fill("Spring Fair 2027!")
-        labels[1] = ("utm_campaign", "spring_fair_2027")
+        labels[1] = ("utm_campaign", "spring-fair-2027")
         wait_for_link(page, expected_link(base, labels))
 
         page.locator("#tracking-date").fill("2026-10-23")
@@ -333,14 +333,14 @@ def check_basics_and_tracking(context, base_url: str) -> None:
         row.locator(".qr-parameter-picker__trigger").click()
         row.locator('.qr-parameter-picker__option[data-value="utm_content"]').click()
         row.locator(".qr-parameter-value").fill("bus-stop")
-        labels[-1] = ("utm_content", "261023_bus-stop")
+        labels[-1] = ("utm_content", "261023-bus-stop")
         wait_for_link(page, expected_link(base, labels))
 
         row.locator(".qr-parameter-picker__trigger").click()
         row.locator('.qr-parameter-picker__option[data-value="utm_source"]').click()
-        row.locator(".qr-parameter-value-choice").select_option("flyer")
+        row.locator(".qr-parameter-value-choice").select_option("so-01")
         labels[-1] = ("utm_content", "261023")
-        labels.append(("utm_source", "flyer"))
+        labels.append(("utm_source", "so-01"))
         wait_for_link(page, expected_link(base, labels))
 
         row.locator(".qr-parameter-value-choice").select_option("__other__")
@@ -351,7 +351,7 @@ def check_basics_and_tracking(context, base_url: str) -> None:
         # A name used by Channel cannot be added again.
         row.locator(".qr-parameter-picker__trigger").click()
         row.locator('.qr-parameter-picker__option[data-value="utm_medium"]').click()
-        row.locator(".qr-parameter-value-choice").select_option("email")
+        row.locator(".qr-parameter-value-choice").select_option("ch-01")
         page.wait_for_function("() => document.querySelector('.qr-parameter-error') && !document.querySelector('.qr-parameter-error').hidden")
         require("only once" in row.locator(".qr-parameter-error").text_content(), "Duplicate name was accepted")
 
@@ -480,7 +480,7 @@ def check_many_links(context, base_url: str, folder: Path) -> None:
         require(page.locator("#single-url-field").is_hidden() and page.locator("#bulk-urls").is_visible(),
                 "Many links fields differ")
         require(page.locator("#design-section").is_hidden(), "Design shows for Many links")
-        page.locator("#tracking-agency").select_option("hhs")
+        page.locator("#tracking-agency").select_option("ag-14")
         page.locator("#bulk-urls").fill("\n".join([
             "https://marincounty.gov/innovation",
             '"https://hhs.marincounty.gov/flu",Flu page,2026',
@@ -492,7 +492,7 @@ def check_many_links(context, base_url: str, folder: Path) -> None:
         page.wait_for_function("() => document.querySelectorAll('#bulk-rows tr').length === 6")
         require("3 of 6 links made" in page.locator("#bulk-summary").text_content(), "Summary differs")
         rows = page.locator("#bulk-rows tr")
-        first = expected_link("https://marincounty.gov/innovation", [("agency", "hhs"), ("via", "link")])
+        first = expected_link("https://marincounty.gov/innovation", [("agency", "ag-14"), ("via", "link")])
         require(rows.nth(0).locator("td").nth(1).text_content() == first, "First link differs")
         require("secure HTTPS" in rows.nth(2).text_content(), "HTTP problem is missing")
         require(FORBIDDEN in rows.nth(3).text_content(), "Outside website problem is missing")
@@ -552,10 +552,10 @@ def check_stats(context, base_url: str, folder: Path) -> None:
 
         # Choices go into the address and come back from it.
         page.locator("#stats-period").select_option("7")
-        page.locator("#stats-agency").select_option("hhs")
-        page.wait_for_function("() => location.search.includes('agency=hhs') && location.search.includes('period=7')")
+        page.locator("#stats-agency").select_option("ag-14")
+        page.wait_for_function("() => location.search.includes('agency=ag-14') && location.search.includes('period=7')")
         shared = page.locator("#stats-copy-link").evaluate("button => (button.dispatchEvent(new PointerEvent('pointerdown')), button.dataset.copyValue)")
-        require("view=stats" in shared and "period=7" in shared and "agency=hhs" in shared, f"Shared address differs: {shared}")
+        require("view=stats" in shared and "period=7" in shared and "agency=ag-14" in shared, f"Shared address differs: {shared}")
         require(any("filter_param=agency" in call for call in calls), "The agency filter was not sent")
         require(all(call.startswith("GET ") for call in calls), "The app made a request that is not read-only")
         require(all("/api/v1/" in call for call in calls), f"The app called the tracker outside its API: {calls}")
@@ -563,11 +563,11 @@ def check_stats(context, base_url: str, folder: Path) -> None:
     finally:
         page.close()
 
-    page = open_app(context, base_url, f"?view=stats&period=90&agency=fire&link={LINK_ID}&detail=utm_source")
+    page = open_app(context, base_url, f"?view=stats&period=90&agency=hhs&link={LINK_ID}&detail=utm_source")
     try:
         page.wait_for_function("() => !document.querySelector('#stats-kpis').hidden")
         require(page.locator("#stats-period").input_value() == "90", "Shared period did not come back")
-        require(page.locator("#stats-agency").input_value() == "fire", "Shared agency did not come back")
+        require(page.locator("#stats-agency").input_value() == "ag-14", "Shared agency did not come back")
         require(page.locator("#stats-link").input_value() == LINK_ID, "Shared link did not come back")
         require(page.locator("#stats-parameter").input_value() == "utm_source", "Shared detail did not come back")
     finally:

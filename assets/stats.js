@@ -278,11 +278,16 @@
     );
   }
 
+  // Values in links are codes. Show the name from the choices list, or the value as typed.
+  function valueLabel(parameter, value) {
+    return window.MarinLinksPresets?.labelFor(parameter, value) || value;
+  }
+
   function renderParameterChart() {
     const { values, hasParameters } = state.last;
     const entries = (values?.data || [])
       .slice(0, TOP_LIMIT)
-      .map((entry) => [entry.value || "(empty)", entry.redirects]);
+      .map((entry) => [entry.value ? valueLabel(refs.parameter.value, entry.value) : "(empty)", entry.redirects]);
     renderBarChart(
       "parameter",
       refs.parameterCanvas,
@@ -455,7 +460,7 @@
     (links.data?.items || []).filter((item) => item.redirects > 0)
       .forEach((item) => rows.push(["Top links", item.display, item.redirects, ""]));
     (via.data || []).forEach((entry) => rows.push(["QR codes and links", VIA_LABELS[entry.value] || entry.value, entry.redirects, ""]));
-    (values?.data || []).forEach((entry) => rows.push([`Tracking details (${refs.parameter.value})`, entry.value || "(empty)", entry.redirects, ""]));
+    (values?.data || []).forEach((entry) => rows.push([`Tracking details (${refs.parameter.value})`, entry.value ? valueLabel(refs.parameter.value, entry.value) : "(empty)", entry.redirects, ""]));
     (agents.data || []).forEach((entry) => rows.push(["Browsers", entry.label, entry.redirects, ""]));
     return rows.map((row) => row.map(csvCell).join(",")).join("\r\n") + "\r\n";
   }
@@ -531,7 +536,9 @@
     const period = incoming.get("period");
     if (period && [...refs.period.options].some((option) => option.value === period)) refs.period.value = period;
     const agency = incoming.get("agency");
-    if (agency && [...refs.agency.options].some((option) => option.value === agency)) refs.agency.value = agency;
+    // An older shared link may hold the agency's earlier name instead of its code.
+    const agencyCode = agency && window.MarinLinksPresets?.codeFor("agency", agency);
+    if (agencyCode && [...refs.agency.options].some((option) => option.value === agencyCode)) refs.agency.value = agencyCode;
     const link = incoming.get("link");
     if (link && /^[0-9a-f]{32}$/.test(link)) state.pendingLink = link;
     const detail = incoming.get("detail");

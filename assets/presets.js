@@ -4,18 +4,46 @@
  * only a backup, used if the Brand Center list cannot be loaded.
  * Agencies and their divisions come from assets/agencies.js, which is generated from the master list in
  * data/agencies.json. A division is picked as "agency/division".
- * Campaigns are chosen by the web team. To add one, add a line to CAMPAIGNS in a pull request.
- * Optional fields on a campaign: channel (a Channel option value) and agency (an agency value).
+ * Channels, sources, languages, and campaigns come from assets/tracking-options.js, which is generated from
+ * data/tracking-options.json. A link carries only the code of a chosen item, never its name.
+ * Optional fields on a campaign: channel (a Channel code) and agency (an agency code).
  */
 
 (() => {
   "use strict";
 
   // The County list of agencies and departments, generated from data/agencies.json (see assets/agencies.js).
-  const AGENCIES = window.MarinAgencyList || []; const CAMPAIGNS = [
-    { value: "envision_marin", name: "Envision Marin" },
-    { value: "weather_together", name: "Weather Together" }
-  ];
+  const AGENCIES = window.MarinAgencyList || [];
+  const OPTIONS = window.MarinTrackingOptions || { channels: [], sources: [], languages: [], campaigns: [] };
+  const CAMPAIGNS = OPTIONS.campaigns;
+
+  // Turns a value found in a link or in Stats (a code or an older value) into its name.
+  // Anything not in a list comes back as it was typed.
+  function lookup(parameter, value) {
+    const lists = {
+      utm_medium: OPTIONS.channels,
+      utm_source: OPTIONS.sources,
+      lang: OPTIONS.languages,
+      utm_campaign: OPTIONS.campaigns
+    };
+    if (lists[parameter]) {
+      const found = lists[parameter].find((item) => item.value === value || item.legacy.includes(value));
+      return found ? { code: found.value, name: found.name } : null;
+    }
+    if (parameter === "agency") {
+      const found = AGENCIES.find((item) => item.value === value || item.id === value);
+      return found ? { code: found.value, name: found.name } : null;
+    }
+    if (parameter === "division") {
+      for (const agency of AGENCIES) {
+        const found = (agency.divisions || []).find((item) => item.value === value || item.id === value);
+        if (found) return { code: found.value, name: found.name };
+      }
+    }
+    return null;
+  }
+  const labelFor = (parameter, value) => lookup(parameter, value)?.name || value;
+  const codeFor = (parameter, value) => lookup(parameter, value)?.code || value;
 
   const BRAND_CENTER = "https://marincountygov.github.io/marin-brand/";
   const BRAND_LIST = `${BRAND_CENTER}brands.json`;
@@ -53,6 +81,11 @@
 
   window.MarinLinksPresets = Object.freeze({
     loadLogos,
+    labelFor,
+    codeFor,
+    channels: OPTIONS.channels,
+    sources: OPTIONS.sources,
+    languages: OPTIONS.languages,
     logos: Object.freeze(LOGOS.map((entry) => Object.freeze(entry))),
     agencies: Object.freeze(AGENCIES.map((entry) => Object.freeze(entry))),
     campaigns: Object.freeze(CAMPAIGNS.map((entry) => Object.freeze(entry)))

@@ -28,6 +28,7 @@ python3 "$ROOT_DIR/tests/validate_template.py"
 python3 "$ROOT_DIR/tests/test_security_meta.py"
 python3 "$ROOT_DIR/vendor/marinos/audit-buttons.py" "$ROOT_DIR" --fail
 python3 "$ROOT_DIR/scripts/build-agencies.py" --check
+python3 "$ROOT_DIR/scripts/build-options.py" --check
 python3 "$ROOT_DIR/tests/test_app_static.py"
 
 if command -v node >/dev/null 2>&1; then
@@ -41,6 +42,7 @@ if command -v node >/dev/null 2>&1; then
   node --check "$ROOT_DIR/assets/tracker-config.js"
   node --check "$ROOT_DIR/assets/agencies.js"
   node --check "$ROOT_DIR/assets/presets.js"
+  node --check "$ROOT_DIR/assets/tracking-options.js"
   printf 'JavaScript syntax: PASS\n'
 else
   printf 'SKIP: Node is unavailable; JavaScript syntax was not checked.\n' >&2

@@ -7,194 +7,239 @@
 (() => {
   "use strict";
 
-  // Each department has its divisions, in the list's own order. A division is picked as "department/division".
+  // Each department has its divisions, in the list's own order. A division is picked as "department code/division code".
   const AGENCIES = [
     {
-      "value": "awm",
+      "value": "ag-01",
+      "id": "awm",
       "name": "Agriculture, Weights and Measures",
       "divisions": [
         {
-          "value": "agriculture",
+          "value": "dv-01",
+          "id": "agriculture",
           "name": "Agriculture"
         },
         {
-          "value": "weights-and-measures",
+          "value": "dv-02",
+          "id": "weights-and-measures",
           "name": "Weights and Measures"
         }
       ]
     },
     {
-      "value": "arcc",
+      "value": "ag-02",
+      "id": "arcc",
       "name": "Assessor, Recorder, County Clerk"
     },
     {
-      "value": "board",
+      "value": "ag-03",
+      "id": "board",
       "name": "Board of Supervisors"
     },
     {
-      "value": "css",
+      "value": "ag-04",
+      "id": "css",
       "name": "Child Support Services"
     },
     {
-      "value": "grand-jury",
+      "value": "ag-05",
+      "id": "grand-jury",
       "name": "Civil Grand Jury"
     },
     {
-      "value": "cda",
+      "value": "ag-06",
+      "id": "cda",
       "name": "Community Development Agency",
       "divisions": [
         {
-          "value": "building-and-safety",
+          "value": "dv-03",
+          "id": "building-and-safety",
           "name": "Building and Safety"
         },
         {
-          "value": "environmental-health-services",
+          "value": "dv-04",
+          "id": "environmental-health-services",
           "name": "Environmental Health Services"
         },
         {
-          "value": "planning",
+          "value": "dv-05",
+          "id": "planning",
           "name": "Planning"
         },
         {
-          "value": "housing-and-grants",
+          "value": "dv-06",
+          "id": "housing-and-grants",
           "name": "Housing and Grants Division"
         }
       ]
     },
     {
-      "value": "county-counsel",
+      "value": "ag-07",
+      "id": "county-counsel",
       "name": "County Counsel"
     },
     {
-      "value": "county-executive",
+      "value": "ag-08",
+      "id": "county-executive",
       "name": "Office of the County Executive"
     },
     {
-      "value": "cultural-services",
+      "value": "ag-09",
+      "id": "cultural-services",
       "name": "Cultural Services"
     },
     {
-      "value": "da",
+      "value": "ag-10",
+      "id": "da",
       "name": "District Attorney"
     },
     {
-      "value": "elections",
+      "value": "ag-11",
+      "id": "elections",
       "name": "Elections (Registrar of Voters)"
     },
     {
-      "value": "finance",
+      "value": "ag-12",
+      "id": "finance",
       "name": "Department of Finance"
     },
     {
-      "value": "fire",
+      "value": "ag-13",
+      "id": "fire",
       "name": "Fire Department"
     },
     {
-      "value": "hhs",
+      "value": "ag-14",
+      "id": "hhs",
       "name": "Health and Human Services",
       "divisions": [
         {
-          "value": "general-administration",
+          "value": "dv-07",
+          "id": "general-administration",
           "name": "General Administration"
         },
         {
-          "value": "bhrs",
+          "value": "dv-08",
+          "id": "bhrs",
           "name": "Behavioral Health and Recovery Services"
         },
         {
-          "value": "homelessness-and-coordinated-care",
+          "value": "dv-09",
+          "id": "homelessness-and-coordinated-care",
           "name": "Homelessness and Coordinated Care"
         },
         {
-          "value": "public-health",
+          "value": "dv-10",
+          "id": "public-health",
           "name": "Public Health"
         },
         {
-          "value": "social-services",
+          "value": "dv-11",
+          "id": "social-services",
           "name": "Social Services"
         }
       ]
     },
     {
-      "value": "hr",
+      "value": "ag-15",
+      "id": "hr",
       "name": "Human Resources",
       "divisions": [
         {
-          "value": "classification-compensation",
+          "value": "dv-12",
+          "id": "classification-compensation",
           "name": "Classification and Compensation"
         },
         {
-          "value": "employee-benefits-wellness",
+          "value": "dv-13",
+          "id": "employee-benefits-wellness",
           "name": "Employee Benefits and Wellness"
         },
         {
-          "value": "employee-and-labor-relations",
+          "value": "dv-14",
+          "id": "employee-and-labor-relations",
           "name": "Employee and Labor Relations"
         },
         {
-          "value": "equal-opportunity",
+          "value": "dv-15",
+          "id": "equal-opportunity",
           "name": "Equal Opportunity"
         },
         {
-          "value": "internships-and-volunteers",
+          "value": "dv-16",
+          "id": "internships-and-volunteers",
           "name": "Internships and Volunteers"
         },
         {
-          "value": "learning-and-organizational-development",
+          "value": "dv-17",
+          "id": "learning-and-organizational-development",
           "name": "Learning and Organizational Development"
         },
         {
-          "value": "leaves",
+          "value": "dv-18",
+          "id": "leaves",
           "name": "Leaves"
         },
         {
-          "value": "recruitment",
+          "value": "dv-19",
+          "id": "recruitment",
           "name": "Recruitment"
         },
         {
-          "value": "risk-management",
+          "value": "dv-20",
+          "id": "risk-management",
           "name": "Risk Management"
         }
       ]
     },
     {
-      "value": "ist",
+      "value": "ag-16",
+      "id": "ist",
       "name": "Information Services and Technology"
     },
     {
-      "value": "library",
+      "value": "ag-17",
+      "id": "library",
       "name": "Marin County Free Library"
     },
     {
-      "value": "parks",
+      "value": "ag-18",
+      "id": "parks",
       "name": "Parks"
     },
     {
-      "value": "probation",
+      "value": "ag-19",
+      "id": "probation",
       "name": "Probation"
     },
     {
-      "value": "public-defender",
+      "value": "ag-20",
+      "id": "public-defender",
       "name": "Public Defender"
     },
     {
-      "value": "public-works",
+      "value": "ag-21",
+      "id": "public-works",
       "name": "Public Works"
     },
     {
-      "value": "retirement",
+      "value": "ag-22",
+      "id": "retirement",
       "name": "Retirement"
     },
     {
-      "value": "sheriff",
+      "value": "ag-23",
+      "id": "sheriff",
       "name": "Sheriff"
     },
     {
-      "value": "tax-collector",
+      "value": "ag-24",
+      "id": "tax-collector",
       "name": "Tax Collector"
     },
     {
-      "value": "uc-extension",
+      "value": "ag-25",
+      "id": "uc-extension",
       "name": "UC Cooperative Extension (Farm Advisor)"
     }
   ];
