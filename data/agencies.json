@@ -10,11 +10,13 @@
   "notes": [
     "An id is permanent. Never reuse or rename an id. If an agency closes, set status to retired.",
     "A division's id is its department's id, a slash, and a short name (for example hhs/public-health).",
-    "The order of this list is the order people see in menus."
+    "The order of this list is the order people see in menus.",
+    "A code is the opaque value Marin Links sends in the agency and division labels. It is permanent. Never reuse, change, or renumber a code."
   ],
   "agencies": [
     {
       "id": "awm",
+      "code": "ag-01",
       "name": "Agriculture, Weights and Measures",
       "type": "department",
       "parent": null,
@@ -23,6 +25,7 @@
     },
     {
       "id": "awm/agriculture",
+      "code": "dv-01",
       "name": "Agriculture",
       "type": "division",
       "parent": "awm",
@@ -31,6 +34,7 @@
     },
     {
       "id": "awm/weights-and-measures",
+      "code": "dv-02",
       "name": "Weights and Measures",
       "type": "division",
       "parent": "awm",
@@ -39,6 +43,7 @@
     },
     {
       "id": "arcc",
+      "code": "ag-02",
       "name": "Assessor, Recorder, County Clerk",
       "type": "department",
       "parent": null,
@@ -47,6 +52,7 @@
     },
     {
       "id": "board",
+      "code": "ag-03",
       "name": "Board of Supervisors",
       "type": "department",
       "parent": null,
@@ -55,6 +61,7 @@
     },
     {
       "id": "css",
+      "code": "ag-04",
       "name": "Child Support Services",
       "type": "department",
       "parent": null,
@@ -63,6 +70,7 @@
     },
     {
       "id": "grand-jury",
+      "code": "ag-05",
       "name": "Civil Grand Jury",
       "type": "department",
       "parent": null,
@@ -71,6 +79,7 @@
     },
     {
       "id": "cda",
+      "code": "ag-06",
       "name": "Community Development Agency",
       "type": "department",
       "parent": null,
@@ -79,6 +88,7 @@
     },
     {
       "id": "cda/building-and-safety",
+      "code": "dv-03",
       "name": "Building and Safety",
       "type": "division",
       "parent": "cda",
@@ -87,6 +97,7 @@
     },
     {
       "id": "cda/environmental-health-services",
+      "code": "dv-04",
       "name": "Environmental Health Services",
       "type": "division",
       "parent": "cda",
@@ -95,6 +106,7 @@
     },
     {
       "id": "cda/planning",
+      "code": "dv-05",
       "name": "Planning",
       "type": "division",
       "parent": "cda",
@@ -103,6 +115,7 @@
     },
     {
       "id": "cda/housing-and-grants",
+      "code": "dv-06",
       "name": "Housing and Grants Division",
       "type": "division",
       "parent": "cda",
@@ -111,6 +124,7 @@
     },
     {
       "id": "county-counsel",
+      "code": "ag-07",
       "name": "County Counsel",
       "type": "department",
       "parent": null,
@@ -119,6 +133,7 @@
     },
     {
       "id": "county-executive",
+      "code": "ag-08",
       "name": "Office of the County Executive",
       "type": "department",
       "parent": null,
@@ -127,6 +142,7 @@
     },
     {
       "id": "cultural-services",
+      "code": "ag-09",
       "name": "Cultural Services",
       "type": "department",
       "parent": null,
@@ -135,6 +151,7 @@
     },
     {
       "id": "da",
+      "code": "ag-10",
       "name": "District Attorney",
       "type": "department",
       "parent": null,
@@ -143,6 +160,7 @@
     },
     {
       "id": "elections",
+      "code": "ag-11",
       "name": "Elections (Registrar of Voters)",
       "type": "department",
       "parent": null,
@@ -151,6 +169,7 @@
     },
     {
       "id": "finance",
+      "code": "ag-12",
       "name": "Department of Finance",
       "type": "department",
       "parent": null,
@@ -159,6 +178,7 @@
     },
     {
       "id": "fire",
+      "code": "ag-13",
       "name": "Fire Department",
       "type": "department",
       "parent": null,
@@ -167,6 +187,7 @@
     },
     {
       "id": "hhs",
+      "code": "ag-14",
       "name": "Health and Human Services",
       "type": "department",
       "parent": null,
@@ -175,6 +196,7 @@
     },
     {
       "id": "hhs/general-administration",
+      "code": "dv-07",
       "name": "General Administration",
       "type": "division",
       "parent": "hhs",
@@ -183,6 +205,7 @@
     },
     {
       "id": "hhs/bhrs",
+      "code": "dv-08",
       "name": "Behavioral Health and Recovery Services",
       "type": "division",
       "parent": "hhs",
@@ -191,6 +214,7 @@
     },
     {
       "id": "hhs/homelessness-and-coordinated-care",
+      "code": "dv-09",
       "name": "Homelessness and Coordinated Care",
       "type": "division",
       "parent": "hhs",
@@ -199,6 +223,7 @@
     },
     {
       "id": "hhs/public-health",
+      "code": "dv-10",
       "name": "Public Health",
       "type": "division",
       "parent": "hhs",
@@ -207,6 +232,7 @@
     },
     {
       "id": "hhs/social-services",
+      "code": "dv-11",
       "name": "Social Services",
       "type": "division",
       "parent": "hhs",
@@ -215,6 +241,7 @@
     },
     {
       "id": "hr",
+      "code": "ag-15",
       "name": "Human Resources",
       "type": "department",
       "parent": null,
@@ -223,6 +250,7 @@
     },
     {
       "id": "hr/classification-compensation",
+      "code": "dv-12",
       "name": "Classification and Compensation",
       "type": "division",
       "parent": "hr",
@@ -231,6 +259,7 @@
     },
     {
       "id": "hr/employee-benefits-wellness",
+      "code": "dv-13",
       "name": "Employee Benefits and Wellness",
       "type": "division",
       "parent": "hr",
@@ -239,6 +268,7 @@
     },
     {
       "id": "hr/employee-and-labor-relations",
+      "code": "dv-14",
       "name": "Employee and Labor Relations",
       "type": "division",
       "parent": "hr",
@@ -247,6 +277,7 @@
     },
     {
       "id": "hr/equal-opportunity",
+      "code": "dv-15",
       "name": "Equal Opportunity",
       "type": "division",
       "parent": "hr",
@@ -255,6 +286,7 @@
     },
     {
       "id": "hr/internships-and-volunteers",
+      "code": "dv-16",
       "name": "Internships and Volunteers",
       "type": "division",
       "parent": "hr",
@@ -263,6 +295,7 @@
     },
     {
       "id": "hr/learning-and-organizational-development",
+      "code": "dv-17",
       "name": "Learning and Organizational Development",
       "type": "division",
       "parent": "hr",
@@ -271,6 +304,7 @@
     },
     {
       "id": "hr/leaves",
+      "code": "dv-18",
       "name": "Leaves",
       "type": "division",
       "parent": "hr",
@@ -279,6 +313,7 @@
     },
     {
       "id": "hr/recruitment",
+      "code": "dv-19",
       "name": "Recruitment",
       "type": "division",
       "parent": "hr",
@@ -287,6 +322,7 @@
     },
     {
       "id": "hr/risk-management",
+      "code": "dv-20",
       "name": "Risk Management",
       "type": "division",
       "parent": "hr",
@@ -295,6 +331,7 @@
     },
     {
       "id": "ist",
+      "code": "ag-16",
       "name": "Information Services and Technology",
       "type": "department",
       "parent": null,
@@ -303,6 +340,7 @@
     },
     {
       "id": "library",
+      "code": "ag-17",
       "name": "Marin County Free Library",
       "type": "department",
       "parent": null,
@@ -311,6 +349,7 @@
     },
     {
       "id": "parks",
+      "code": "ag-18",
       "name": "Parks",
       "type": "department",
       "parent": null,
@@ -319,6 +358,7 @@
     },
     {
       "id": "probation",
+      "code": "ag-19",
       "name": "Probation",
       "type": "department",
       "parent": null,
@@ -327,6 +367,7 @@
     },
     {
       "id": "public-defender",
+      "code": "ag-20",
       "name": "Public Defender",
       "type": "department",
       "parent": null,
@@ -335,6 +376,7 @@
     },
     {
       "id": "public-works",
+      "code": "ag-21",
       "name": "Public Works",
       "type": "department",
       "parent": null,
@@ -343,6 +385,7 @@
     },
     {
       "id": "retirement",
+      "code": "ag-22",
       "name": "Retirement",
       "type": "department",
       "parent": null,
@@ -351,6 +394,7 @@
     },
     {
       "id": "sheriff",
+      "code": "ag-23",
       "name": "Sheriff",
       "type": "department",
       "parent": null,
@@ -359,6 +403,7 @@
     },
     {
       "id": "tax-collector",
+      "code": "ag-24",
       "name": "Tax Collector",
       "type": "department",
       "parent": null,
@@ -367,6 +412,7 @@
     },
     {
       "id": "uc-extension",
+      "code": "ag-25",
       "name": "UC Cooperative Extension (Farm Advisor)",
       "type": "department",
       "parent": null,

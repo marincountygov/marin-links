@@ -17,6 +17,7 @@
     <script src="vendor/qrcode/qrcode.js" defer></script>
     <script src="assets/tracker-config.js" defer></script>
     <script src="assets/agencies.js" defer></script>
+    <script src="assets/tracking-options.js" defer></script>
     <script src="assets/presets.js" defer></script>
     <script src="assets/authorized-domains.js" defer></script>
     <script src="assets/qr-image.js" defer></script>
@@ -103,6 +104,14 @@
                 <p id="bulk-error" class="app-error" role="alert" hidden></p>
               </div>
 
+              <fieldset class="app-field" id="length-field">
+                <legend>Length</legend>
+                <div class="qr-output-options">
+                  <label for="length-long"><input id="length-long" type="radio" name="length" value="long" checked> <span>Long</span></label>
+                  <label for="length-short"><input id="length-short" type="radio" name="length" value="short"> <span>Short</span></label>
+                </div>
+              </fieldset>
+
               <details id="allowed-websites-help" class="qr-help-details">
                 <summary>Which websites can I use?</summary>
                 <p>These websites and their subdomains:</p>
@@ -127,12 +136,6 @@
                   <label for="tracking-channel">Channel</label>
                   <select id="tracking-channel" name="tracking-channel">
                     <option value="">Not set</option>
-                    <option value="email">Email</option>
-                    <option value="sms">Text message</option>
-                    <option value="social">Social media</option>
-                    <option value="paid">Paid ads</option>
-                    <option value="print">Print or QR code</option>
-                    <option value="partner">Partner or coalition</option>
                   </select>
                 </div>
                 <div class="app-field">
@@ -162,9 +165,9 @@
                     autocapitalize="none"
                     spellcheck="false"
                     aria-describedby="tracking-campaign-help"
-                    placeholder="fall_flu">
+                    placeholder="fall-flu">
                   <p id="tracking-campaign-help" class="app-help-text">
-                    A short name for the project. Spaces and capital letters are changed for you.
+                    A short name for the project. Spaces and capital letters are changed for you. Use a code, not a name or address.
                   </p>
                 </div>
               </div>

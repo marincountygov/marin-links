@@ -1,0 +1,138 @@
+{
+  "$comment": "Choices for Marin Links tracking lists. 'code' is the only value sent in a link. It is permanent: never change, reuse, or renumber it. 'label' is what people see. 'legacy' lists older values that mean the same choice, so past visits still resolve in Stats. Run scripts/build-options.py after editing.",
+  "schemaVersion": "1.0.0",
+  "lists": {
+    "channels": [
+      {
+        "id": "email",
+        "code": "ch-01",
+        "label": "Email",
+        "legacy": [
+          "email"
+        ]
+      },
+      {
+        "id": "sms",
+        "code": "ch-02",
+        "label": "Text message",
+        "legacy": [
+          "sms"
+        ]
+      },
+      {
+        "id": "social",
+        "code": "ch-03",
+        "label": "Social media",
+        "legacy": [
+          "social"
+        ]
+      },
+      {
+        "id": "paid",
+        "code": "ch-04",
+        "label": "Paid ads",
+        "legacy": [
+          "paid"
+        ]
+      },
+      {
+        "id": "print",
+        "code": "ch-05",
+        "label": "Print or QR code",
+        "legacy": [
+          "print"
+        ]
+      },
+      {
+        "id": "partner",
+        "code": "ch-06",
+        "label": "Partner or coalition",
+        "legacy": [
+          "partner"
+        ]
+      }
+    ],
+    "sources": [
+      {
+        "id": "flyer",
+        "code": "so-01",
+        "label": "Flyer",
+        "legacy": [
+          "flyer"
+        ]
+      },
+      {
+        "id": "poster",
+        "code": "so-02",
+        "label": "Poster",
+        "legacy": [
+          "poster"
+        ]
+      },
+      {
+        "id": "postcard",
+        "code": "so-03",
+        "label": "Postcard",
+        "legacy": [
+          "postcard"
+        ]
+      },
+      {
+        "id": "sign",
+        "code": "so-04",
+        "label": "Sign",
+        "legacy": [
+          "sign"
+        ]
+      },
+      {
+        "id": "newsletter",
+        "code": "so-05",
+        "label": "Newsletter",
+        "legacy": [
+          "newsletter"
+        ]
+      },
+      {
+        "id": "website",
+        "code": "so-06",
+        "label": "Website",
+        "legacy": [
+          "website"
+        ]
+      }
+    ],
+    "languages": [
+      {
+        "id": "english",
+        "code": "en",
+        "label": "English",
+        "legacy": []
+      },
+      {
+        "id": "spanish",
+        "code": "es",
+        "label": "Spanish",
+        "legacy": []
+      }
+    ],
+    "campaigns": [
+      {
+        "id": "envision-marin",
+        "code": "cmp-01",
+        "label": "Envision Marin",
+        "legacy": [
+          "envision_marin"
+        ]
+      },
+      {
+        "id": "weather-together",
+        "code": "cmp-02",
+        "label": "Weather Together",
+        "legacy": [
+          "weather_together"
+        ]
+      }
+    ]
+  }
+}

@@ -6,6 +6,8 @@ from html.parser import HTMLParser
 import json
 from pathlib import Path
 import re
+import subprocess
+import sys
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -91,6 +93,7 @@ class MarinQrStaticTests(unittest.TestCase):
             "vendor/qrcode/qrcode.js",
             "assets/tracker-config.js",
             "assets/agencies.js",
+            "assets/tracking-options.js",
             "assets/presets.js",
             "assets/authorized-domains.js",
             "assets/qr-image.js",
@@ -246,8 +249,10 @@ class MarinQrStaticTests(unittest.TestCase):
         self.assertIn("tracking-agency", parser.elements)
         self.assertIn("tracking-campaign-choice", parser.elements)
         presets = (ROOT / "assets/presets.js").read_text(encoding="utf-8")
-        self.assertIn('{ value: "envision_marin", name: "Envision Marin" }', presets)
-        self.assertIn('{ value: "weather_together", name: "Weather Together" }', presets)
+        options = (ROOT / "assets/tracking-options.js").read_text(encoding="utf-8")
+        self.assertIn('"value": "cmp-01"', options)
+        self.assertIn('"name": "Envision Marin"', options)
+        self.assertIn('"envision_marin"', options)
         self.assertIn("window.MarinAgencyList", presets)
         self.assertIn('{ name: "division", value: division }', self.app_js)
         self.assertIn('filter_param: "agency"', self.stats_js)
@@ -291,7 +296,7 @@ class MarinQrStaticTests(unittest.TestCase):
             self.assertIn(element_id, parser.elements)
         self.assertIn('{ name: "via", value: isQrMode() ? "qr" : "link" }', self.app_js)
         self.assertIn("261023", self.html)
-        self.assertIn('dateParameter.value = `${dateCode}_${value}`', self.app_js)
+        self.assertIn('dateParameter.value = `${dateCode}-${value}`', self.app_js)
         self.assertIn("const MAX_BULK_LINES = 100;", self.app_js)
         self.assertIn("function csvCell(", self.app_js)
         self.assertIn("function csvCell(", self.stats_js)
@@ -300,9 +305,19 @@ class MarinQrStaticTests(unittest.TestCase):
         self.assertIn("function statsAddress()", self.stats_js)
         self.assertIn("/^[0-9a-f]{32}$/", self.stats_js)
 
+    def test_tracking_options_have_permanent_codes_and_the_generated_file_is_current(self) -> None:
+        data = json.loads((ROOT / "data/tracking-options.json").read_text(encoding="utf-8"))
+        codes = [item["code"] for name, items in data["lists"].items() if name != "languages" for item in items]
+        self.assertEqual(len(codes), len(set(codes)))
+        result = subprocess.run([sys.executable, str(ROOT / "scripts/build-options.py"), "--check"],
+                                capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        # Links carry the code of a chosen item, never its name.
+        self.assertIn("window.MarinTrackingOptions", self.app_js)
+        self.assertNotIn('["flyer", "Flyer"]', self.app_js)
+
     def test_master_agency_list_is_valid_and_the_generated_file_is_current(self) -> None:
         import json
-        import subprocess
         import sys
         data = json.loads((ROOT / "data/agencies.json").read_text(encoding="utf-8"))
         ids = [item["id"] for item in data["agencies"]]
@@ -317,7 +332,8 @@ class MarinQrStaticTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         generated = (ROOT / "assets/agencies.js").read_text(encoding="utf-8")
         self.assertIn("Do not edit", generated)
-        self.assertIn('"value": "public-health"', generated)
+        self.assertIn('"id": "public-health"', generated)
+        self.assertIn('"value": "dv-10"', generated)
 
     def test_reliability_and_image_limits_are_present(self) -> None:
         self.assertIn("const QUIET_ZONE_MODULES = 4", self.safety_js)

@@ -47,6 +47,8 @@
     agency: "Agency",
     division: "Division"
   });
+  // Typed values should be codes. Block the plain cases of an email address or a phone number.
+  const PERSONAL_VALUE_PATTERN = /@|(?:\d[\s().-]*){10,}/;
   const OTHER_VALUE = "__other__";
   const NEW_CAMPAIGN_VALUE = "__new__";
   const LOGO_UPLOAD_VALUE = "__upload__";
@@ -55,26 +57,23 @@
   const DENSE_QR_VERSION = 13;
   const PRINT_DPI = 300;
   // Common answers. A short list keeps spelling the same, so Stats groups visits together.
+  // Common answers, from the generated list. A link carries the code, not the name.
+  const asChoices = (list) => list.map(({ value, name }) => [value, name]);
+  const TRACKING_LISTS = window.MarinTrackingOptions || { channels: [], sources: [], languages: [] };
   const VALUE_OPTIONS = Object.freeze({
-    utm_source: [
-      ["flyer", "Flyer"], ["poster", "Poster"], ["postcard", "Postcard"],
-      ["sign", "Sign"], ["newsletter", "Newsletter"], ["website", "Website"]
-    ],
-    utm_medium: [
-      ["email", "Email"], ["sms", "Text message"], ["social", "Social media"],
-      ["paid", "Paid ads"], ["print", "Print or QR code"], ["partner", "Partner or coalition"]
-    ],
-    lang: [["en", "English"], ["es", "Spanish"]]
+    utm_source: asChoices(TRACKING_LISTS.sources),
+    utm_medium: asChoices(TRACKING_LISTS.channels),
+    lang: asChoices(TRACKING_LISTS.languages)
   });
   const PARAMETER_PLACEHOLDERS = Object.freeze({
     utm_source: "flyer",
     utm_medium: "qr",
-    utm_campaign: "flu_2026",
-    utm_content: "poster_a",
+    utm_campaign: "flu-2026",
+    utm_content: "poster-a",
     utm_term: "seniors",
     ref: "library",
     source: "outreach",
-    event: "health_fair",
+    event: "health-fair",
     location: "novato",
     lang: "es"
   });
@@ -256,7 +255,9 @@
   // Every link and QR code goes through the tracker, which counts the visit and
   // then sends people to the web address.
   function buildTrackedUrl(destinationHref) {
-    return `${window.MarinLinksTracker.endpoint}?d=${encodeURIComponent(destinationHref)}`;
+    const short = document.querySelector('input[name="length"]:checked')?.value === "short";
+    const base = short ? window.MarinLinksTracker.redirect : window.MarinLinksTracker.endpoint;
+    return `${base}?d=${encodeURIComponent(destinationHref)}`;
   }
 
   function applyMode() {
@@ -805,7 +806,8 @@
   }
 
   function fillPresetLists() {
-    const { agencies, campaigns } = window.MarinLinksPresets;
+    const { agencies, campaigns, channels } = window.MarinLinksPresets;
+    channels.forEach(({ value, name }) => refs.channel.append(new Option(name, value)));
     // A department, then its divisions right after it ("Health and Human Services: Public Health").
     agencies.forEach(({ value, name, divisions = [] }) => {
       refs.agency.append(new Option(name, value));
@@ -827,9 +829,9 @@
     });
   }
 
-  // Lowercase words joined by underscores, so "Fall Flu 2026" and "fall_flu_2026" count together.
+  // Lowercase words joined by hyphens, so "Fall Flu 2026" and "fall-flu-2026" count together.
   function normalizeCampaign(text) {
-    return text.trim().toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+    return text.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
   }
 
   function collectParameters() {
@@ -907,6 +909,12 @@
         }
       }
 
+      if (!choosing && PERSONAL_VALUE_PATTERN.test(value)) {
+        setParameterRowError(row, [valueInput], "This looks like an email address or phone number. Use a code instead.");
+        valid = false;
+        return;
+      }
+
       if (!value) {
         setParameterRowError(row, [choosing ? valueSelect : valueInput], "Add a value for this tracking detail.");
         valid = false;
@@ -914,7 +922,7 @@
       }
 
       if (name === "utm_content" && dateParameter) {
-        dateParameter.value = `${dateCode}_${value}`;
+        dateParameter.value = `${dateCode}-${value}`;
         return;
       }
 
@@ -1527,6 +1535,9 @@
     refs.bulkUrls.addEventListener("input", scheduleUpdate);
     refs.bulkCopy.addEventListener("pointerdown", cancelScheduledUpdate);
     refs.bulkCsv.addEventListener("click", downloadBulkCsv);
+    document.querySelectorAll('input[name="length"]').forEach((radio) => {
+      radio.addEventListener("change", scheduleUpdate);
+    });
     document.querySelectorAll('input[name="background"]').forEach((radio) => {
       radio.addEventListener("change", scheduleUpdate);
     });
