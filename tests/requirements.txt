@@ -1,0 +1,9 @@
+# Python packages for the browser tests: bash scripts/check.sh --browser
+# Then install the browser once: python -m playwright install chromium
+# (on a bare Linux machine: python -m playwright install --with-deps chromium)
+playwright
+numpy
+opencv-python-headless
+# Optional: a stronger QR reader than OpenCV. It needs the system zbar library
+# (apt install libzbar0, brew install zbar). The tests work without it.
+# pyzbar

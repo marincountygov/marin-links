@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import base64
 from pathlib import Path
+import re
 import shutil
 import sys
 import json
@@ -20,7 +21,7 @@ except ImportError:  # OpenCV remains as a fallback.
     zbar_decode = None
 
 from browser_smoke import (
-    BRAND_CENTER_ROOT, BRAND_LIST, LINK_ID, ROOT, TRACKER_API, configure, no_overflow, ready, require, serve,
+    BRAND_CENTER_ROOT, BRAND_LIST, LINK_ID, ROOT, SERVER, TRACKER_API, configure, no_overflow, ready, require, serve,
 )
 
 
@@ -57,14 +58,29 @@ def corner_alpha(png: bytes) -> int:
 
 
 def decode_qr(png: bytes) -> str:
+    """Read a QR code with zbar when it is installed, else with OpenCV.
+
+    OpenCV's detector is picky about small images and tight margins, and it differs between builds, so it gets a
+    few tries: the image as is, with a wider white margin, and scaled up with hard edges.
+    """
     image = composite_on_white(read_png(png))
     if zbar_decode is not None:
         decoded = zbar_decode(image)
         if decoded:
             return decoded[0].data.decode("utf-8")
-    value, points, _ = cv2.QRCodeDetector().detectAndDecode(image)
-    require(points is not None and value, "Generated PNG could not be decoded as a QR code")
-    return value
+    detectors = [cv2.QRCodeDetector()]
+    if hasattr(cv2, "QRCodeDetectorAruco"):
+        detectors.append(cv2.QRCodeDetectorAruco())
+    for scale in (1, 2, 3):
+        scaled = image if scale == 1 else cv2.resize(image, None, fx=scale, fy=scale, interpolation=cv2.INTER_NEAREST)
+        for margin in (0, 40):
+            candidate = scaled if not margin else cv2.copyMakeBorder(
+                scaled, margin, margin, margin, margin, cv2.BORDER_CONSTANT, value=(255, 255, 255))
+            for detector in detectors:
+                value, points, _ = detector.detectAndDecode(candidate)
+                if points is not None and value:
+                    return value
+    raise AssertionError("Generated PNG could not be decoded as a QR code")
 
 
 def svg_to_png(page, svg: str, size: int = 1200) -> bytes:
@@ -124,7 +140,7 @@ def verify_svg(svg: str, expected_url: str, *, transparent: bool, has_logo: bool
 
 
 
-TRACKER_ROOT = "https://l.marinhhs.org/"
+TRACKER_ROOT = SERVER["url"]
 FORBIDDEN = "Use a link from an approved Marin County website."
 
 
@@ -395,12 +411,20 @@ def check_qr_output(context, base_url: str, folder: Path) -> None:
         # A Short QR is made only after the explicit create action. It prints
         # the confirmed Short URL under the code instead of the destination.
         page.locator("#length-short").check()
-        page.wait_for_function("() => !document.querySelector('#short-create').hidden")
+        # The create button is never hidden itself; its panel is, so wait for the panel and for the update to finish.
+        page.wait_for_function("() => !document.querySelector('#short-create-actions').hidden && document.querySelector('#qr-show-address').disabled")
         require(page.locator("#qr-show-address").is_disabled(), "The address option stays on for a Short link")
         require(page.locator("#download").is_disabled(), "A Short QR exists before it is created")
         page.locator("#short-create").click()
-        short_url = f"{TRACKER_ROOT}sample0123"
-        wait_for_qr(page, short_url)
+        # The test server makes the code from the destination, so read the confirmed Short URL from the page.
+        page.wait_for_function(
+            "root => { const text = document.querySelector('#final-url')?.textContent || ''; "
+            "return text.startsWith(root) && !text.includes('?d=') && document.querySelector('#qr-canvas')?.dataset.qrReady === 'true' "
+            "&& !document.querySelector('#download')?.disabled; }",
+            arg=TRACKER_ROOT,
+        )
+        short_url = final_link(page)
+        require(re.fullmatch(re.escape(TRACKER_ROOT) + r"[A-Za-z0-9-]+", short_url), f"Short URL has an unexpected shape: {short_url}")
         require(short_url.removeprefix("https://") in page.locator("#qr-canvas").get_attribute("aria-label"),
                 "The Short URL is missing from the image description")
         require(decode_qr(canvas_png(page)) == short_url, "Short QR does not encode the confirmed server URL")

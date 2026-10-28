@@ -11,6 +11,8 @@ import sys
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "scripts"))
+from server_settings import read_settings  # noqa: E402  (the server address comes from marin.yml)
 
 
 class SourceParser(HTMLParser):
@@ -223,8 +225,9 @@ class MarinQrStaticTests(unittest.TestCase):
         self.assertIn("backgroundOption: false", self.app_js)
 
     def test_links_go_through_the_tracker_and_stats_are_read_only(self) -> None:
-        self.assertIn("https://l.marinhhs.org/", self.tracker_js)
-        self.assertIn('sourcePath = "/marin-links/"', self.tracker_js)
+        settings = read_settings()
+        self.assertIn(f'serverRoot = "{settings["url"]}"', self.tracker_js)
+        self.assertIn(f'sourcePath = "{settings["source_path"]}"', self.tracker_js)
         self.assertIn("encodeURIComponent(destinationHref)", self.app_js)
         for name in ("localStorage", "sessionStorage", "indexedDB", "document.cookie", "sendBeacon", "WebSocket"):
             self.assertNotIn(name, self.stats_js)
@@ -243,7 +246,7 @@ class MarinQrStaticTests(unittest.TestCase):
         self.assertIn('short-links/summary', self.stats_js)
         self.assertIn("Too few visits to show.", self.stats_js)
         security = (ROOT / "security.json").read_text(encoding="utf-8")
-        self.assertIn("https://l.marinhhs.org", security)
+        self.assertIn(f'"{read_settings()["origin"]}"', security)
 
     def test_tracking_has_channel_campaign_and_value_dropdowns(self) -> None:
         parser = SourceParser(self.html)

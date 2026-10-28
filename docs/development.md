@@ -58,13 +58,13 @@ bash scripts/check.sh --browser-in-memory
 
 The browser workflow test needs:
 
-- Python 3;
+- Python 3.9 or newer;
 - Playwright for Python;
 - Chromium or Chrome;
 - OpenCV (`cv2`) and NumPy;
 - `pyzbar` plus the system ZBar library for the most reliable decode check. OpenCV is the fallback decoder.
 
-The in-memory Short workflow additionally needs CairoSVG to decode SVG exports without following links. It mocks capability, creation, and Stats requests; it never sends a live POST or opens a live Short URL. The tests cover exact v0.4.5 JSON and headers, 200/201 replay handling, lost responses, temporary failures, rate limits, partial batches, strict returned URLs, and separate overall/per-code reports. The in-memory shell fixture does not verify HTTP asset loading, defer timing, home-link document reload, same-origin CSP loading, or Referer delivery. Run the full local-HTTP suite before release.
+Install the packages with `python -m pip install -r tests/requirements.txt` and the browser with `python -m playwright install chromium`; `scripts/check.sh` tells you which one is missing. The in-memory Short workflow draws SVG exports in the browser, so it needs nothing extra. It mocks capability, creation, and Stats requests; it never sends a live POST or opens a live Short URL. The tests cover exact v0.4.5 JSON and headers, 200/201 replay handling, lost responses, temporary failures, rate limits, partial batches, strict returned URLs, and separate overall/per-code reports. The in-memory shell fixture does not verify HTTP asset loading, defer timing, home-link document reload, same-origin CSP loading, or Referer delivery. Run the full local-HTTP suite before release.
 
 The workflow test independently decodes the generated canvas, downloaded PNG, and rasterized SVG. It checks opaque and transparent backgrounds, SVG output with and without a center image, square and wide images, transparent trimming, long-link QR structures, center-image size limits, and the retained hidden color implementation.
 

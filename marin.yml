@@ -29,3 +29,5 @@ services:
     purpose: Registers user-requested short URLs, tracks link visits, and serves public aggregate statistics
     runs: browser
     visitor-data: true
+    url: https://l.marinhhs.org/
+    source-path: /marin-links/

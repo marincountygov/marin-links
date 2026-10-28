@@ -10,9 +10,8 @@ import subprocess
 import sys
 from urllib.parse import parse_qs, unquote, urlparse
 from playwright.sync_api import sync_playwright
-from browser_smoke import fixture_page, no_overflow, require
-from browser_app import canvas_png, decode_qr, verify_svg
-import cairosvg
+from browser_smoke import SERVER, fixture_page, no_overflow, require
+from browser_app import canvas_png, decode_qr, svg_to_png, verify_svg
 
 
 class TestHarness:
@@ -126,7 +125,7 @@ def test_long_and_single(h):
     p.locator('#destination-url').fill('https://hhs.marincounty.gov/?a=1&a=2#section')
     h.wait()
     long_url=p.locator('#final-url').text_content()
-    require(long_url.startswith('https://l.marinhhs.org/?d='), 'Long tracking endpoint is wrong')
+    require(long_url.startswith((SERVER['url'] + '?d=')), 'Long tracking endpoint is wrong')
     decoded=unquote(long_url.split('?d=',1)[1])
     require('a=1&a=2' in decoded and '#section' in decoded and 'via=link' in decoded,'Long destination parameters were lost')
     require(len(h.calls()) == 0, 'Long preview submitted creation request')
@@ -140,7 +139,7 @@ def test_long_and_single(h):
     calls=h.calls()
     require(len(calls)==1, 'Unexpected number of single-link creation requests')
     record=calls[0]
-    require(record['url']=='https://l.marinhhs.org/s/api/v1/short-links', 'Creation endpoint differs')
+    require(record['url']==(SERVER['url'] + 's/api/v1/short-links'), 'Creation endpoint differs')
     require(record['credentials']=='omit' and 'Authorization' not in record['headers'] and 'Origin' not in record['headers'], 'Client sent credentials or tried to set Origin')
     require(record['mode']=='cors' and record['cache']=='no-store' and record['referrerPolicy']=='no-referrer', 'Creation fetch safety options differ')
     require(record['headers'].get('Content-Type')=='application/json' and record['headers'].get('Accept')=='application/json', 'Creation headers differ')
@@ -148,7 +147,7 @@ def test_long_and_single(h):
     require(record['payload']['destination']==decoded, 'Final parameterized URL differs from Long output')
     require(record['payload']['channel']=='other' and record['payload']['label']=='', 'Unexpected metadata')
     require(16 <= len(record['key']) <= 128 and all(c.isalnum() or c in '_-' for c in record['key']), 'Invalid request key')
-    require(p.locator('#copy-link-primary').get_attribute('data-copy-value') == 'https://l.marinhhs.org/test000001','Copy link differs')
+    require(p.locator('#copy-link-primary').get_attribute('data-copy-value') == (SERVER['url'] + 'test000001'),'Copy link differs')
     p.locator('#destination-url').fill('https://marincounty.gov/other')
     h.wait()
     require(len(h.calls()) == 1, 'Typing registered a second URL')
@@ -200,15 +199,15 @@ def test_qr_and_stale(h):
     require(len(h.calls()) == 0, 'Short QR preview submitted a creation request')
     p.locator('#short-create').click()
     p.wait_for_function("() => document.querySelector('#qr-canvas').dataset.qrReady === 'true'")
-    require(p.locator('#qr-canvas').get_attribute('data-final-url') == 'https://l.marinhhs.org/test000001','QR encodes wrong URL')
+    require(p.locator('#qr-canvas').get_attribute('data-final-url') == (SERVER['url'] + 'test000001'),'QR encodes wrong URL')
     payload = h.calls()[0]['payload']
     query = parse_qs(urlparse(payload['destination']).query)
     require(payload['channel']=='qr' and query.get('via') == ['qr'], 'QR source metadata differs')
     require(query.get('utm_source') == ['library-desk'], 'The current Source field was lost from Short creation')
     require(query.get('utm_content') == ['261028-poster-a'], 'The current Content and Send date fields were lost from Short creation')
-    require('l.marinhhs.org/test000001' in (p.locator('#qr-canvas').get_attribute('aria-label') or ''), 'Short QR caption does not use the confirmed Short URL')
+    require((SERVER['host'] + '/test000001') in (p.locator('#qr-canvas').get_attribute('aria-label') or ''), 'Short QR caption does not use the confirmed Short URL')
     require(p.locator('#download').is_enabled(), 'QR download disabled')
-    expected = 'https://l.marinhhs.org/test000001'
+    expected = (SERVER['url'] + 'test000001')
     require(decode_qr(canvas_png(p)) == expected, 'Preview QR image does not decode to the created short URL')
     with p.expect_download() as download_info:
         p.locator('#download').click()
@@ -221,7 +220,7 @@ def test_qr_and_stale(h):
     svg_download = download_info.value
     svg = Path(svg_download.path()).read_text(encoding='utf-8')
     verify_svg(svg, expected, transparent=False, has_logo=False)
-    require(decode_qr(cairosvg.svg2png(bytestring=svg.encode("utf-8"), output_width=1200, output_height=1200)) == expected, 'SVG export does not decode to the created short URL')
+    require(decode_qr(svg_to_png(p, svg, 1200)) == expected, 'SVG export does not decode to the created short URL')
     p.locator('#destination-url').fill('https://marincounty.gov/health2')
     h.wait()
     require(p.locator('#download').is_disabled() and p.locator('#copy-link-primary').is_disabled(), 'Stale QR remains available')
@@ -271,7 +270,7 @@ def test_capability_advisory(h):
     require(len(h.calls())==0, 'Capability discovery registered a short link')
     p.locator('#length-long').check()
     h.wait()
-    require(p.locator('#final-url').text_content().startswith('https://l.marinhhs.org/?d='), 'Long links stopped working when Short creation was unavailable')
+    require(p.locator('#final-url').text_content().startswith((SERVER['url'] + '?d=')), 'Long links stopped working when Short creation was unavailable')
     require(not h.errors, 'Browser errors: '+str(h.errors))
 
 
@@ -282,7 +281,7 @@ def test_capability_base_fallback(h):
       const data=await window.MarinLinksShortApi.capabilities({refresh:true});
       return data.short_url_base_url;
     }""")
-    require(result=='https://l.marinhhs.org/', 'Untrusted capability base replaced the configured Short URL base')
+    require(result==SERVER['url'], 'Untrusted capability base replaced the configured Short URL base')
     require(len(h.calls())==0, 'Capability base check sent a creation request')
 
 
@@ -293,14 +292,14 @@ def test_known_code_validation(h):
       const base=window.MarinLinksTracker.serverRoot;
       return {
         valid: api.normalizeKnownCode('Good-code1', base),
-        full: api.normalizeKnownCode('https://l.marinhhs.org/good-code1', base),
+        full: api.normalizeKnownCode(base + 'good-code1', base),
         double: api.normalizeKnownCode('bad--code', base),
         trailing: api.normalizeKnownCode('bad-', base),
-        slash: api.normalizeKnownCode('https://l.marinhhs.org/a%2Fb', base),
-        query: api.normalizeKnownCode('https://l.marinhhs.org/good-code1?x=1', base),
-        fragment: api.normalizeKnownCode('https://l.marinhhs.org/good-code1#x', base),
+        slash: api.normalizeKnownCode(base + 'a%2Fb', base),
+        query: api.normalizeKnownCode(base + 'good-code1?x=1', base),
+        fragment: api.normalizeKnownCode(base + 'good-code1#x', base),
         foreign: api.normalizeKnownCode('https://example.invalid/good-code1', base),
-        dot: api.normalizeKnownCode('https://l.marinhhs.org/extra/../good-code1', base),
+        dot: api.normalizeKnownCode(base + 'extra/../good-code1', base),
         reserved: api.normalizeKnownCode('s', base)
       };
     }""")
@@ -398,7 +397,7 @@ def test_late_server_response(h):
     p.wait_for_function("() => document.querySelector('#short-prior') && !document.querySelector('#short-prior').hidden")
     require(p.locator('#final-url').text_content() == '' and p.locator('#copy-link-primary').is_disabled(),
             'Late response was treated as the current destination')
-    require(p.locator('#short-prior-copy').get_attribute('data-copy-value') == 'https://l.marinhhs.org/test000001',
+    require(p.locator('#short-prior-copy').get_attribute('data-copy-value') == (SERVER['url'] + 'test000001'),
             'Created link disappeared instead of being shown as the prior result')
     require(not h.errors, 'Browser errors: ' + str(h.errors))
 
@@ -549,7 +548,7 @@ def test_stats(h):
     require(p.locator('#stats-via-card').is_hidden() and p.locator('#stats-short-code-field').is_visible(), 'Tracked controls shown in short report')
     require(p.locator('#stats-short-overall-heading').is_visible(), 'Overall Short URL heading is missing')
     # about:blank fixtures cannot build a real shareable GitHub Pages URL.
-    p.locator('#stats-short-code').fill('https://l.marinhhs.org/sample0123')
+    p.locator('#stats-short-code').fill((SERVER['url'] + 'sample0123'))
     p.locator('#stats-short-show').click()
     p.wait_for_function("() => document.querySelector('#stats-short-kpi-visits').textContent === '7'")
     require(p.locator('#stats-kpi-visits').text_content() == '22', 'Known-code report replaced the overall total')

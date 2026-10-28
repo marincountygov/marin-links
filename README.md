@@ -88,7 +88,7 @@ assets/
   app.css                  Marin Links layout and styles
   app.js                   Create tab: validation, tracking, QR, links, many links, downloads
   stats.js                 Tabs and the Stats tab: tracker requests, charts, CSV, shared links
-  tracker-config.js        Configurable serverRoot (default https://l.marinhhs.org/) and GitHub Pages sourcePath
+  tracker-config.js        serverRoot and sourcePath, generated from marin.yml (services.links-server)
   short-links-api.js       Anonymous JSON POST adapter, response validation, idempotent retry handling
   agencies.js              Agency list (generated from data/agencies.json, do not edit)
   presets.js               Saved campaigns and the backup list of logos
@@ -127,7 +127,7 @@ Run the component/CSP fixtures and the mocked Short creation, batch, and reporti
 bash scripts/check.sh --browser-in-memory
 ```
 
-The full HTTP Marin Links browser test independently decodes generated and downloaded PNG files and rasterized SVG files. It checks the Link, Add many web addresses, and QR code choices, the tracking labels, Brand Center logos, print sizes, Stats tabs and shared Stats links, exact-domain and subdomain rules, deceptive hostnames, HTTP rejection, long links, and dark mode. The new offline Short integration test additionally decodes its QR PNG/SVG exports. See [`docs/development.md`](docs/development.md) for test dependencies and manual review steps.
+The full HTTP Marin Links browser test independently decodes generated and downloaded PNG files and rasterized SVG files. It checks the Link, Add many web addresses, and QR code choices, the tracking labels, Brand Center logos, print sizes, Stats tabs and shared Stats links, exact-domain and subdomain rules, deceptive hostnames, HTTP rejection, long links, and dark mode. The new offline Short integration test additionally decodes its QR PNG/SVG exports. The browser tests need Python 3.9 or newer, the packages in `tests/requirements.txt`, and a Playwright Chromium (`python -m playwright install chromium`). `scripts/check.sh` finds Python (`PYTHON` overrides it), says what is missing before it runs a test, and works on macOS, Linux and GitHub Actions; `.github/workflows/check.yml` runs `bash scripts/check.sh --browser` on every pull request. See [`docs/development.md`](docs/development.md) for manual review steps.
 
 ## QR dependency
 
@@ -145,14 +145,16 @@ All user-facing instructions and validation messages should remain suitable for 
 
 ## Short-link integration (v0.2.0)
 
-The only deployment-specific frontend settings are in `assets/tracker-config.js`:
+The server address is set in one place: the `links-server` entry under `services:` in `marin.yml`.
 
-```js
-const serverRoot = "https://l.marinhhs.org/";
-const sourcePath = "/marin-links/";
+```yaml
+services:
+  links-server:
+    url: https://l.marinhhs.org/
+    source-path: /marin-links/
 ```
 
-The frontend derives the API at `{serverRoot}s/api/v1/` and tracked redirects at `{serverRoot}?d=...`. Moving the server to another hostname or URL subdirectory requires editing `serverRoot` only. The server-issued `short_url` is never constructed by the frontend.
+The browser cannot read `marin.yml`, so `python3 scripts/server_settings.py --write` copies those two values into `assets/tracker-config.js` (`serverRoot`, `sourcePath`) and into the matching entries in `security.json`; then run `python3 scripts/sync-security-meta.py --write` to refresh the Content Security Policy in `index.html`. `bash scripts/check.sh` fails if any of these files differs from `marin.yml`, and the tests read the address from `marin.yml` too. The frontend derives the API at `{serverRoot}s/api/v1/` and tracked redirects at `{serverRoot}?d=...`. Moving the server to another hostname or URL subdirectory means editing `url` in `marin.yml` and running those two commands. The server-issued `short_url` is never constructed by the frontend.
 
 **Server administrator setup:** Enable `short_links.creation.public_enabled`. Register both supported frontend locations in `allowed_sources`: `https://marincountygov.github.io/marin-links/` and `https://misc.marinhhs.org/marin-links/`. The frontend sends `/marin-links/` as its source path at either location. Set any County/VPN client-IP allowlist, and populate `public_allowlisted.allowed_hosts` with destinations that may be used. These checks are enforced by Marin Links Server. Source paths and browser origins are not authentication; IP restrictions apply to the users' public/VPN egress IP addresses, not GitHub Pages. CLI and capability-key methods remain independent.
 

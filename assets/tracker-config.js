@@ -1,7 +1,9 @@
 /*
- * Marin Links Server connection settings. Change only serverRoot and sourcePath
- * when moving to a new installation. The County server remains authoritative
- * for short-link creation, destination rules, and returned short URLs.
+ * Marin Links Server connection settings. The two values below come from the
+ * links-server entry in marin.yml; change them there, then run
+ * python3 scripts/server_settings.py --write. Do not edit them here. The
+ * County server remains authoritative for short-link creation, destination
+ * rules, and returned short URLs.
  */
 (() => {
   "use strict";
