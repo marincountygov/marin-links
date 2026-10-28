@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8">
     <!-- BEGIN generated security meta: python3 scripts/sync-security-meta.py --write -->
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: https://marincountygov.github.io/marin-brand/brands/; font-src 'self'; connect-src 'self' https://misc.marinhhs.org/marin-qr-tracker/api/v1/ https://marincountygov.github.io/marin-brand/brands.json https://marincountygov.github.io/marin-os/catalog.json https://marincountygov.github.io/marin-os/data/lighthouse.json https://marincountygov.github.io/marin-os/data/tech.json https://api.github.com; object-src 'none'; base-uri 'self'; form-action 'self'">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: https://marincountygov.github.io/marin-brand/brands/; font-src 'self'; connect-src 'self' https://l.marinhhs.org https://marincountygov.github.io/marin-brand/brands.json https://marincountygov.github.io/marin-os/catalog.json https://marincountygov.github.io/marin-os/data/lighthouse.json https://marincountygov.github.io/marin-os/data/tech.json https://api.github.com; object-src 'none'; base-uri 'self'; form-action 'self'">
     <meta name="referrer" content="strict-origin-when-cross-origin">
     <!-- END generated security meta -->
     <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -22,6 +22,7 @@
     <script src="assets/authorized-domains.js" defer></script>
     <script src="assets/qr-image.js" defer></script>
     <script src="assets/qr-safety.js" defer></script>
+    <script src="assets/short-links-api.js" defer></script>
     <script src="assets/app.js" defer></script>
     <script src="assets/stats.js" defer></script>
   </head>
@@ -266,6 +267,25 @@
           <aside id="qr-preview-card" class="app-card qr-preview-card" aria-labelledby="preview-heading">
             <h3 id="preview-heading">Preview</h3>
 
+            <section id="short-create-actions" class="short-create-panel" aria-label="Create a short link" hidden>
+              <p class="app-help-text">Final web address (with tracking details):</p>
+              <p id="short-destination" class="short-destination"></p>
+              <p class="app-help-text">A short link is saved by the County. Check the web address before you create it.</p>
+              <p id="short-availability" class="app-help-text" role="status" hidden></p>
+              <button type="button" id="short-create" class="primary">Create short link</button>
+              <p id="short-status" role="status" aria-live="polite" class="app-help-text" hidden></p>
+            </section>
+            <section id="short-bulk-actions" class="short-create-panel" aria-label="Create short links" hidden>
+              <p class="app-help-text">Each short link is saved and counts toward shared limits. A large list may stop before it finishes.</p>
+              <div class="app-actions short-bulk-buttons">
+                <button type="button" id="short-bulk-create" class="primary">Create short links</button>
+                <button type="button" id="short-bulk-stop" class="action-button" hidden>Stop after current link</button>
+                <button type="button" id="short-bulk-retry" class="action-button" hidden>Retry remaining</button>
+              </div>
+              <p id="short-bulk-availability" class="app-help-text" role="status" hidden></p>
+              <p id="short-bulk-progress" role="status" aria-live="polite" aria-atomic="true" class="app-help-text"></p>
+            </section>
+
             <div id="preview-empty" class="app-empty qr-preview-empty" role="status" aria-live="polite">
               Add a web address to make a link.
             </div>
@@ -312,7 +332,7 @@
                   <table class="qr-bulk-table">
                     <caption class="visually-hidden">Your links</caption>
                     <thead>
-                      <tr><th scope="col">Web address</th><th scope="col">Your link</th></tr>
+                      <tr><th scope="col">Web address</th><th scope="col">Your link</th><th scope="col">Status</th></tr>
                     </thead>
                     <tbody id="bulk-rows"></tbody>
                   </table>
@@ -323,11 +343,32 @@
                 </div>
               </div>
             </div>
+            <section id="short-prior" class="short-previous" hidden>
+              <h4>Previous short link</h4>
+              <p class="app-help-text"><strong>Out of date.</strong> This link belongs to earlier form details. It has not been changed.</p>
+              <p id="short-prior-url" class="short-destination"></p>
+              <button id="short-prior-copy" type="button" class="action-button" data-copy-value="" data-copy-announce="Previous link copied">Copy previous link</button>
+            </section>
+            <section id="short-bulk-prior" class="short-previous" hidden>
+              <h4>Previous batch</h4>
+              <p class="app-help-text"></p>
+              <div class="app-actions">
+                <button id="short-bulk-prior-copy" type="button" class="action-button" data-copy-value="" data-copy-announce="Previous batch copied">Copy previous short links</button>
+                <button id="short-bulk-prior-csv" type="button" class="action-button">Download previous CSV</button>
+              </div>
+            </section>
           </aside>
         </div>
 
         <div id="panel-stats" role="tabpanel" aria-labelledby="tab-stats" class="ml-stats" hidden>
           <div class="ml-stats-controls">
+            <div class="app-field">
+              <label for="stats-report">Report</label>
+              <select id="stats-report">
+                <option value="tracked">Tracked links</option>
+                <option value="short">Short URLs</option>
+              </select>
+            </div>
             <div class="app-field">
               <label for="stats-period">Time</label>
               <select id="stats-period">
@@ -337,18 +378,29 @@
                 <option value="365">Past year</option>
               </select>
             </div>
-            <div class="app-field">
+            <div class="app-field" id="stats-agency-field">
               <label for="stats-agency">Agency</label>
               <select id="stats-agency">
                 <option value="">All agencies</option>
               </select>
             </div>
-            <div class="app-field">
+            <div class="app-field" id="stats-link-field">
               <label for="stats-link">Link</label>
               <select id="stats-link">
                 <option value="">All links</option>
               </select>
             </div>
+          </div>
+
+          <div class="ml-short-code-field app-field" id="stats-short-code-field" hidden>
+            <label for="stats-short-code">One Short URL (optional)</label>
+            <p class="app-help-text">Enter a short link or code you already have. Marin Links cannot show a list of every short link.</p>
+            <div class="ml-short-code-controls">
+              <input id="stats-short-code" type="text" placeholder="Short code or full short URL" autocapitalize="none" spellcheck="false" aria-describedby="stats-short-code-error">
+              <button id="stats-short-show" type="button" class="action-button">Show stats</button>
+              <button id="stats-short-clear" type="button" class="action-button">All short URLs</button>
+            </div>
+            <p id="stats-short-code-error" role="alert" class="app-error" hidden></p>
           </div>
 
           <div class="ml-stats-actions action-group" role="group" aria-label="Share or save these numbers">
@@ -358,17 +410,18 @@
 
           <p id="stats-status" class="app-help-text" role="status" aria-live="polite">Loading Marin Links…</p>
 
+          <h3 id="stats-short-overall-heading" hidden>All Short URLs</h3>
           <div class="ml-stats-kpis" id="stats-kpis" hidden>
             <div class="ml-stats-kpi">
               <p class="app-help-text">Visits</p>
               <p class="ml-stats-kpi__value" id="stats-kpi-visits">—</p>
             </div>
             <div class="ml-stats-kpi">
-              <p class="app-help-text">Estimated visitors</p>
+              <p class="app-help-text" id="stats-kpi-visitors-label">Estimated visitors</p>
               <p class="ml-stats-kpi__value" id="stats-kpi-visitors">—</p>
             </div>
             <div class="ml-stats-kpi">
-              <p class="app-help-text">Links</p>
+              <p class="app-help-text" id="stats-kpi-links-label">Links</p>
               <p class="ml-stats-kpi__value" id="stats-kpi-links">—</p>
             </div>
           </div>
@@ -381,7 +434,7 @@
               <button type="button" class="action-button ml-chart-download" data-chart-download="daily" aria-label="Download visits chart as PNG" title="Download visits chart as PNG" data-icon="download"></button>
             </section>
 
-            <section class="app-card">
+            <section class="app-card" id="stats-via-card">
               <h3>QR codes and links</h3>
               <canvas id="stats-via-chart" role="img" data-chart-title="QR codes and links" aria-label="QR codes and links"></canvas>
               <p class="app-help-text ml-stats-empty" hidden></p>
@@ -395,7 +448,7 @@
               <button type="button" class="action-button ml-chart-download" data-chart-download="links" aria-label="Download links chart as PNG" title="Download links chart as PNG" data-icon="download"></button>
             </section>
 
-            <section class="app-card">
+            <section class="app-card" id="stats-parameter-card">
               <h3>Tracking details</h3>
               <div class="app-field">
                 <label for="stats-parameter">Show</label>
@@ -406,7 +459,7 @@
               <button type="button" class="action-button ml-chart-download" data-chart-download="parameter" aria-label="Download tracking details chart as PNG" title="Download tracking details chart as PNG" data-icon="download"></button>
             </section>
 
-            <section class="app-card">
+            <section class="app-card" id="stats-browsers-card">
               <h3>Browsers</h3>
               <canvas id="stats-browsers-chart" role="img" data-chart-title="Browsers" aria-label="Browsers"></canvas>
               <p class="app-help-text ml-stats-empty" hidden></p>
@@ -414,6 +467,40 @@
             </section>
           </div>
 
+          <section id="stats-short-detail" class="app-card ml-short-detail" aria-labelledby="stats-short-detail-heading" hidden>
+            <h3 id="stats-short-detail-heading">One Short URL</h3>
+            <p id="stats-short-detail-status" class="app-help-text" role="status" aria-live="polite"></p>
+            <div id="stats-short-detail-data" hidden>
+              <div class="ml-stats-kpis ml-short-detail-kpis">
+                <div class="ml-stats-kpi">
+                  <p class="app-help-text">Visits</p>
+                  <p class="ml-stats-kpi__value" id="stats-short-kpi-visits">—</p>
+                </div>
+                <div class="ml-stats-kpi">
+                  <p class="app-help-text">Estimated visitors</p>
+                  <p class="ml-stats-kpi__value" id="stats-short-kpi-visitors">—</p>
+                </div>
+              </div>
+              <div class="ml-stats-grid ml-short-detail-grid">
+                <section class="app-card">
+                  <h4>Visits over time</h4>
+                  <canvas id="stats-short-daily-chart" role="img" data-chart-title="One Short URL visits over time" aria-label="One Short URL visits over time"></canvas>
+                  <p class="app-help-text ml-stats-empty" hidden></p>
+                  <button type="button" class="action-button ml-chart-download" data-chart-download="shortDaily" aria-label="Download one Short URL visits chart as PNG" title="Download one Short URL visits chart as PNG" data-icon="download"></button>
+                  <div class="app-table-wrap ml-short-daily-table">
+                    <table>
+                      <caption>Daily visits for this Short URL</caption>
+                      <thead><tr><th scope="col">Date</th><th scope="col">Visits</th></tr></thead>
+                      <tbody id="stats-short-daily"></tbody>
+                    </table>
+                  </div>
+                </section>
+                <div><h4>Browsers</h4><div class="app-table-wrap"><table><thead><tr><th scope="col">Browser</th><th scope="col">Visits</th></tr></thead><tbody id="stats-short-browsers"></tbody></table></div></div>
+                <div><h4>Countries</h4><div class="app-table-wrap"><table><thead><tr><th scope="col">Country</th><th scope="col">Visits</th></tr></thead><tbody id="stats-short-countries"></tbody></table></div></div>
+                <div><h4>Approximate cities</h4><div class="app-table-wrap"><table><thead><tr><th scope="col">City / region</th><th scope="col">Visits</th></tr></thead><tbody id="stats-short-cities"></tbody></table></div></div>
+              </div>
+            </div>
+          </section>
           <p class="app-help-text" id="stats-note" hidden></p>
         </div>
       </section>
@@ -425,7 +512,7 @@
           </p>
           <h3>Link, QR code, or many links</h3>
           <p>
-            Choose Link to get a web address you can paste into an email or page. Choose QR code to get a picture you can print. To make links for a whole list, choose Link and then Add many web addresses. Paste the list and you get a link for each one, with a CSV file you can save. All of them go through the County tracker so visits can be counted.
+            Choose Link to get a web address you can paste into an email or page. Choose QR code to get a picture you can print. To make links for a whole list, choose Link and then Add many web addresses. Choose Long to make a tracking link in your browser. Choose Short, then select Create short link to save a new link in the County system. A list of Short links is created one at a time, and you can save the results as a CSV file.
           </p>
           <p>
             Marin Links adds a small label to each web address, <code>via=link</code> or <code>via=qr</code>. Stats uses it to show how many visits came from QR codes and how many from links.
@@ -437,7 +524,7 @@
           <p>
             Open <a href="https://marincountygov.github.io/marin-links/?dest=any">Marin Links for any HTTPS link</a>.
             You can also add <code>?dest=any</code> to the end of the Marin Links web address.
-            This only works for secure HTTPS links. Check the link before you share it. Only use websites you trust.
+            This lets you enter another secure HTTPS web address. The County system still decides which websites it can track or shorten. Check the link before you share it, and only use websites you trust.
           </p>
           <h3>Tracking details</h3>
           <p>
@@ -449,7 +536,7 @@
           </p>
           <h3>Stats</h3>
           <p>
-            The Stats tab shows visits over time, top links, QR codes and links, tracking details, and browsers. Choose a time, agency, or link to narrow the numbers. Copy link shares your choices with someone else. Download CSV saves the numbers for a spreadsheet.
+            The Stats tab shows tracked links and Short URLs in separate reports. Tracked links show visits, tracking details, and browsers. Short URLs show overall totals or results for a short code you already know. Choose a time to narrow the numbers. Copy link shares your report choices. Download CSV saves numbers for a spreadsheet.
           </p>
           <h3>Printing a QR code</h3>
           <p>

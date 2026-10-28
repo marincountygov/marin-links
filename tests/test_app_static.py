@@ -98,6 +98,7 @@ class MarinQrStaticTests(unittest.TestCase):
             "assets/authorized-domains.js",
             "assets/qr-image.js",
             "assets/qr-safety.js",
+            "assets/short-links-api.js",
             "assets/app.js",
             "assets/stats.js",
         ])
@@ -222,17 +223,27 @@ class MarinQrStaticTests(unittest.TestCase):
         self.assertIn("backgroundOption: false", self.app_js)
 
     def test_links_go_through_the_tracker_and_stats_are_read_only(self) -> None:
-        self.assertIn("https://misc.marinhhs.org/marin-qr-tracker/", self.tracker_js)
+        self.assertIn("https://l.marinhhs.org/", self.tracker_js)
+        self.assertIn('sourcePath = "/marin-links/"', self.tracker_js)
         self.assertIn("encodeURIComponent(destinationHref)", self.app_js)
         for name in ("localStorage", "sessionStorage", "indexedDB", "document.cookie", "sendBeacon", "WebSocket"):
             self.assertNotIn(name, self.stats_js)
-        # Only GET requests to the tracker API; the app never calls the redirect.
+        # Stats uses only GET; only the dedicated creation adapter can POST.
         self.assertEqual(self.stats_js.count("fetch("), 1)
         self.assertNotIn('method:', self.stats_js)
         self.assertIn("window.MarinLinksTracker.apiBase", self.stats_js)
+        adapter = (ROOT / "assets/short-links-api.js").read_text(encoding="utf-8")
+        self.assertIn('method: "POST"', adapter)
+        self.assertIn('credentials: "omit"', adapter)
+        self.assertIn('crypto.randomUUID', adapter)
+        self.assertIn('crypto.getRandomValues', adapter)
+        self.assertNotIn('Math.random', adapter)
+        self.assertNotIn('localStorage', adapter)
+        self.assertNotIn('Authorization:', adapter)
+        self.assertIn('short-links/summary', self.stats_js)
         self.assertIn("Too few visits to show.", self.stats_js)
         security = (ROOT / "security.json").read_text(encoding="utf-8")
-        self.assertIn("https://misc.marinhhs.org/marin-qr-tracker/api/v1/", security)
+        self.assertIn("https://l.marinhhs.org", security)
 
     def test_tracking_has_channel_campaign_and_value_dropdowns(self) -> None:
         parser = SourceParser(self.html)

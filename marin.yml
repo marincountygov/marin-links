@@ -24,8 +24,8 @@ services:
     purpose: Supplies the Marin logos offered in the QR code Logo list
     runs: browser
     visitor-data: true
-  qr-tracker:
-    name: Marin QR Tracker
-    purpose: Counts visits to links and QR codes, and supplies the numbers for the Stats tab
+  links-server:
+    name: Marin Links Server
+    purpose: Registers user-requested short URLs, tracks link visits, and serves public aggregate statistics
     runs: browser
     visitor-data: true

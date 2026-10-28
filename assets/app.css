@@ -720,3 +720,72 @@
 .qr-new-value {
   margin-top: 0.5rem;
 }
+
+/* Server-backed short-link creation and batch progress. */
+.short-create-panel,
+.short-previous {
+  margin-bottom: 1.1rem;
+  padding: 1rem;
+  border: 1px solid var(--app-border);
+  border-radius: var(--pico-border-radius);
+  background: var(--app-bg-soft);
+}
+.short-create-panel > :last-child,
+.short-previous > :last-child { margin-bottom: 0; }
+.short-destination { overflow-wrap: anywhere; font-family: var(--pico-font-family-monospace); font-size: .875rem; }
+.short-bulk-buttons { display: flex; flex-wrap: wrap; gap: .5rem; }
+#short-bulk-progress { margin-top: .75rem; }
+.short-row-status { font-weight: 600; }
+.qr-bulk-table { width: 100%; table-layout: fixed; }
+.qr-bulk-table th, .qr-bulk-table td { overflow-wrap: anywhere; vertical-align: top; }
+.qr-bulk-table th:nth-child(1) { width: 32%; }
+.qr-bulk-table th:nth-child(2) { width: 43%; }
+.qr-bulk-table th:nth-child(3) { width: 25%; }
+.ml-short-code-field { margin-bottom: 1rem; }
+.ml-short-code-controls { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; }
+.ml-short-code-controls input { flex: 1 1 18rem; min-width: 0; margin-bottom: 0; }
+.ml-short-code-controls button { flex: 0 0 auto; margin-bottom: 0; }
+.ml-short-detail { margin-top: 1rem; }
+.ml-short-detail table { font-size: .875rem; }
+.ml-short-detail th, .ml-short-detail td { overflow-wrap: anywhere; }
+@media (max-width: 600px) {
+  .qr-bulk-table { font-size: .8125rem; }
+  .qr-bulk-table th, .qr-bulk-table td { padding: .375rem .25rem; }
+  .ml-short-code-controls { flex-direction: column; align-items: stretch; }
+  .ml-short-code-controls input, .ml-short-code-controls button { width: 100%; }
+}
+
+.qr-preview-card[data-short-mode="true"] .qr-preview-empty { min-height: 0; padding: .75rem 0; }
+@media (max-width: 600px) {
+  .ml-short-code-controls input { flex: none; height: auto; min-height: 2.75rem; }
+}
+
+/* Keep the overall and one-link Short URL reports separate. */
+#stats-short-overall-heading {
+  margin: 1.25rem 0 0;
+}
+
+.ml-short-detail-kpis {
+  margin-bottom: 1rem;
+}
+
+.ml-short-detail-grid {
+  margin-bottom: 0;
+}
+
+.ml-short-detail-grid > .app-card {
+  padding: 1rem;
+}
+
+.ml-short-detail-grid h4 {
+  margin-top: 0;
+}
+
+.ml-short-daily-table {
+  margin-top: 1rem;
+}
+
+.ml-short-detail caption {
+  text-align: left;
+  font-weight: 700;
+}

@@ -6,11 +6,17 @@ Use the contact in [`.well-known/security.txt`](.well-known/security.txt). Inclu
 
 ## Data handling
 
-Marin Links is a static browser app. The web addresses, tracking choices, logo, QR canvas, PNG, SVG, and CSV files stay in browser memory. The app does not send them to a County server, a QR service, analytics, local storage, or IndexedDB.
+Long tracked links, previews, QR images, PNG, SVG, and CSV files are made locally. The app does not send the entered destination or tracking details while the user types or previews a Long link.
 
-Every link and QR code points to the County tracker, which counts each visit and then sends the person to the destination. The tracker holds the destination, the tracking labels, and an estimate of visitors, as described by its own documentation. The Stats tab reads the tracker's public, read-only API with `GET` requests. The app never opens the redirect address itself, because that would count a visit.
+When the user selects **Short** and explicitly clicks **Create short link** (or **Create short links**), the browser sends a JSON `POST` containing the completed HTTPS destination and selected non-sensitive marketing details to `https://l.marinhhs.org/s/api/v1/short-links` (configurable). Marin Links Server stores the full destination privately so the Short URL can work later. The frontend does not use an API key or cookies, does not retain a persistent identifier, and does not store creation inputs in localStorage or IndexedDB. Retry keys and results exist only in page memory.
 
-The page also loads the Brand Center's brand list and logo images, and the shared MarinOS App Shell information sources listed in `security.json`. None of those requests contain the web addresses or generated files.
+An unchanged manual retry reuses the same cryptographic key. This lowers duplicate risk when a response is lost. The server limits replay protection by source, a keyed form of the client IP address, and retention time. A network change can prevent the server from recognizing a replay, so the frontend does not promise permanent or global exactly-once creation.
+
+The server validates destination hostnames, anonymous source path/Origin claims, optional County network/VPN egress IP ranges, rate limits and quotas. Source restrictions alone **do not authenticate a creator**. The frontend's `?dest=any` option does not override server authorization. Do not use this service for sensitive data.
+
+The Stats tab issues public aggregate `GET` requests for Long redirect and Short URL traffic. The overall Short URL report and the report for one known code are separate. Entering a known code retrieves public aggregate statistics, not a private destination or a list of all Short URLs. Visits are redirect requests, not verified QR scans or unique people. The app never follows a Short URL itself.
+
+The frontend fetches Brand Center logo images and MarinOS metadata as documented in `security.json`. It does not upload logo data or QR images.
 
 ## Destination policy
 
@@ -38,7 +44,7 @@ The CSP allows:
 
 - same-origin scripts, styles, fonts, and application files;
 - `data:` images for the favicon, and images from the Brand Center brands folder;
-- network requests to the tracker's API, the Brand Center brand list, and the shared MarinOS catalog, Accessibility, Tech, and GitHub Updates sources.
+- network requests to `https://l.marinhhs.org` for explicit Short creation and public Stats, plus the Brand Center brand list and shared MarinOS catalog, Accessibility, Tech, and GitHub Updates sources.
 
 It does not allow external scripts, inline scripts, inline styles, plugins, or arbitrary network destinations.
 

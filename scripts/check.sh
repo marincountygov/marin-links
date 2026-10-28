@@ -40,6 +40,7 @@ if command -v node >/dev/null 2>&1; then
   node --check "$ROOT_DIR/assets/app.js"
   node --check "$ROOT_DIR/assets/stats.js"
   node --check "$ROOT_DIR/assets/tracker-config.js"
+  node --check "$ROOT_DIR/assets/short-links-api.js"
   node --check "$ROOT_DIR/assets/agencies.js"
   node --check "$ROOT_DIR/assets/presets.js"
   node --check "$ROOT_DIR/assets/tracking-options.js"
@@ -53,11 +54,13 @@ case "$BROWSER_MODE" in
     python3 "$ROOT_DIR/tests/browser_smoke.py"
     python3 "$ROOT_DIR/tests/browser_security.py"
     python3 "$ROOT_DIR/tests/browser_app.py"
+    python3 "$ROOT_DIR/tests/test_short_integration_browser.py"
     ;;
   in-memory)
     python3 "$ROOT_DIR/tests/browser_smoke.py" --in-memory
     python3 "$ROOT_DIR/tests/browser_security.py" --in-memory
-    python3 "$ROOT_DIR/tests/browser_app.py"
+    python3 "$ROOT_DIR/tests/test_short_integration_browser.py"
+    printf 'Full QR export/print test needs --browser (real localhost HTTP).\n'
     ;;
   none)
     printf 'SKIP: Browser tests not requested; use --browser or --browser-in-memory.\n'

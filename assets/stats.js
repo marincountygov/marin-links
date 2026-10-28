@@ -1,8 +1,8 @@
 /*
  * Marin Links tabs and Stats
  * The Stats tab reads the County tracker's public, read-only API and draws
- * charts with the local Chart.js bundle. Nothing about the person using this
- * page is sent.
+ * charts with the local Chart.js bundle. Public reports contain aggregate
+ * counts only; no personal visitor records are requested.
  */
 
 (() => {
@@ -25,6 +25,10 @@
     last: null,
     pendingLink: "",
     pendingParameter: "",
+    report: "tracked",
+    shortCode: "",
+    shortBase: window.MarinLinksTracker?.serverRoot || "",
+    shortLast: null,
     charts: {}
   };
 
@@ -56,17 +60,27 @@
   }
 
   // The address carries the tab and the Stats choices, so it can be shared.
-  const STATS_PARAMETERS = ["period", "agency", "link", "detail"];
+  const STATS_PARAMETERS = ["period", "agency", "link", "detail", "report", "code"];
 
   function statsAddress() {
     const params = new URLSearchParams(window.location.search);
     params.set("view", "stats");
     if (refs.period.value !== DEFAULT_PERIOD) params.set("period", refs.period.value); else params.delete("period");
-    if (refs.agency.value) params.set("agency", refs.agency.value); else params.delete("agency");
-    const link = refs.link.value || state.pendingLink;
-    if (link) params.set("link", link); else params.delete("link");
-    const detail = refs.parameter.value || state.pendingParameter;
-    if (detail) params.set("detail", detail); else params.delete("detail");
+    if (state.report === "short") {
+      params.set("report", "short");
+      params.delete("agency");
+      params.delete("link");
+      params.delete("detail");
+      if (state.shortCode) params.set("code", state.shortCode); else params.delete("code");
+    } else {
+      params.delete("report");
+      params.delete("code");
+      if (refs.agency.value) params.set("agency", refs.agency.value); else params.delete("agency");
+      const link = refs.link.value || state.pendingLink;
+      if (link) params.set("link", link); else params.delete("link");
+      const detail = refs.parameter.value || state.pendingParameter;
+      if (detail) params.set("detail", detail); else params.delete("detail");
+    }
     return `${window.location.origin}${window.location.pathname}?${params.toString()}`;
   }
 
@@ -75,8 +89,8 @@
       const params = new URLSearchParams(window.location.search);
       if (state.tab === "stats") {
         const address = new URL(statsAddress());
-        window.history.replaceState(null, "", `${address.pathname}${address.search}${window.location.hash}`);
         refs.copyLink.dataset.copyValue = address.href;
+        window.history.replaceState(null, "", `${address.pathname}${address.search}${window.location.hash}`);
       } else {
         params.delete("view");
         STATS_PARAMETERS.forEach((name) => params.delete(name));
@@ -113,9 +127,25 @@
     Object.entries(params).forEach(([key, value]) => {
       if (value !== "" && value !== null && value !== undefined) url.searchParams.set(key, value);
     });
-    const response = await fetch(url, { headers: { Accept: "application/json" } });
-    if (!response.ok) throw new Error(`The tracker answered ${response.status}.`);
-    return response.json();
+    const response = await fetch(url, {
+      mode: "cors",
+      credentials: "omit",
+      headers: { Accept: "application/json" },
+      cache: "no-store",
+      referrerPolicy: "no-referrer"
+    });
+    if (!response.ok) {
+      const error = new Error(`The tracker answered ${response.status}.`);
+      error.status = response.status;
+      throw error;
+    }
+    try {
+      return await response.json();
+    } catch {
+      const error = new Error("The tracker sent a result the app could not read.");
+      error.status = response.status;
+      throw error;
+    }
   }
 
   // Only visits from the chosen agency are counted when one is picked.
@@ -125,6 +155,10 @@
 
   async function loadStats() {
     const token = ++state.token;
+    if (state.report === "short") {
+      await loadShortStats(token);
+      return;
+    }
     const days = Number(refs.period.value);
     const link = refs.link.value || state.pendingLink;
     const range = { from: utcDate(-(days - 1)), to: utcDate() };
@@ -167,6 +201,178 @@
       refs.status.textContent = "Stats could not load. Try again later.";
       refs.status.hidden = false;
     }
+  }
+
+  function setShortControls() {
+    const short = state.report === "short";
+    refs.report.value = state.report;
+    refs.agencyField.hidden = short;
+    refs.linkField.hidden = short;
+    refs.shortCodeField.hidden = !short;
+    refs.shortCodeInput.value = state.shortCode;
+    refs.shortCodeClear.hidden = !state.shortCode;
+  }
+
+  function normalizeShortCode(value) {
+    return window.MarinLinksShortApi?.normalizeKnownCode(value, state.shortBase || window.MarinLinksTracker.serverRoot) ?? null;
+  }
+
+  function showShortCode() {
+    const code = normalizeShortCode(refs.shortCodeInput.value);
+    if (code === null) {
+      refs.shortCodeError.textContent = "Enter a short code or a Short URL from this County service.";
+      refs.shortCodeError.hidden = false;
+      refs.shortCodeInput.setAttribute("aria-invalid", "true");
+      return;
+    }
+    refs.shortCodeError.hidden = true;
+    refs.shortCodeInput.removeAttribute("aria-invalid");
+    state.shortCode = code;
+    setShortControls();
+    void loadStats();
+  }
+
+  function populateShortTable(tbody, entries, label) {
+    tbody.textContent = "";
+    if (!entries.length) {
+      const tr = document.createElement("tr");
+      const cell = document.createElement("td");
+      cell.colSpan = 2;
+      cell.textContent = "No public details in this time.";
+      tr.append(cell);
+      tbody.append(tr);
+      return;
+    }
+    entries.forEach((entry) => {
+      const tr = document.createElement("tr");
+      const name = document.createElement("td");
+      name.textContent = label(entry);
+      const count = document.createElement("td");
+      count.textContent = number(entry.visits);
+      tr.append(name, count);
+      tbody.append(tr);
+    });
+  }
+
+  async function loadShortStats(token) {
+    refs.csv.disabled = true;
+    const days = Number(refs.period.value);
+    const range = { from: utcDate(-(days - 1)), to: utcDate() };
+    refs.status.textContent = "Loading Short URL stats…";
+    refs.status.hidden = false;
+    refs.shortDetail.hidden = true;
+    refs.shortDetailData.hidden = true;
+
+    try {
+      const capabilityRequest = window.MarinLinksShortApi?.capabilities?.().catch(() => null) || Promise.resolve(null);
+      const summary = await getJson("short-links/summary", range);
+      const capability = await capabilityRequest;
+      if (token !== state.token) return;
+      state.shortBase = capability?.short_url_base_url || window.MarinLinksTracker.serverRoot;
+
+      let detail = null;
+      let detailState = state.shortCode ? "loading" : "none";
+      let detailMessage = "";
+      if (state.shortCode) {
+        try {
+          detail = await getJson(`short-links/${encodeURIComponent(state.shortCode)}/stats`, range);
+          detailState = detail?.meta?.suppressed ? "suppressed" : "loaded";
+        } catch (error) {
+          detailState = error.status === 404 ? "not_found" : "error";
+          detailMessage = error.message;
+        }
+      }
+      if (token !== state.token) return;
+
+      state.shortLast = { summary, detail, detailState, detailMessage, range, code: state.shortCode };
+      state.last = null;
+      renderShortStats();
+      refs.csv.disabled = false;
+      syncUrl();
+    } catch (error) {
+      if (token !== state.token) return;
+      state.shortLast = null;
+      refs.shortOverallHeading.hidden = true;
+      refs.kpis.hidden = true;
+      refs.grid.hidden = true;
+      refs.shortDetail.hidden = true;
+      refs.note.hidden = true;
+      refs.csv.disabled = true;
+      refs.status.hidden = false;
+      refs.status.textContent = "Short URL stats could not load. Try again later.";
+      Object.keys(state.charts).forEach(destroyChart);
+    }
+  }
+
+  function populateShortDailyTable(entries) {
+    populateShortTable(refs.shortDaily, entries, (row) => row.date);
+  }
+
+  function renderShortStats() {
+    const { summary, detail, detailState, code } = state.shortLast;
+    const summaryData = summary?.data;
+    if (!summaryData) {
+      refs.status.textContent = "Short URL stats could not load. Try again later.";
+      refs.status.hidden = false;
+      refs.csv.disabled = true;
+      return;
+    }
+
+    refs.status.hidden = true;
+    refs.shortOverallHeading.hidden = false;
+    refs.kpis.hidden = false;
+    refs.grid.hidden = false;
+    refs.linksCard.hidden = true;
+    refs.viaCard.hidden = true;
+    refs.parameterCard.hidden = true;
+    refs.browsersCard.hidden = true;
+    refs.kpiLinksLabel.textContent = "Active Short URLs";
+    refs.kpiVisitorsLabel.textContent = "Estimated visitors";
+    refs.kpiVisits.textContent = number(summaryData.visits);
+    refs.kpiVisitors.textContent = summaryData.estimated_daily_unique_ips == null ? "—" : number(summaryData.estimated_daily_unique_ips);
+    refs.kpiLinks.textContent = number(summaryData.active_short_links);
+
+    const summaryRows = (summaryData.daily || []).map((row) => ({
+      date: row.date,
+      redirects: row.visits,
+      estimated_daily_unique_ips: 0
+    }));
+    renderLineChart("daily", refs.dailyCanvas, summaryRows, false, false);
+    ["links", "via", "parameter", "browsers"].forEach(destroyChart);
+
+    refs.shortDetail.hidden = !code;
+    refs.shortDetailData.hidden = true;
+    destroyChart("shortDaily");
+    if (code) {
+      if (detailState === "suppressed") {
+        refs.shortDetailStatus.textContent = SUPPRESSED_MESSAGE;
+      } else if (detailState === "not_found") {
+        refs.shortDetailStatus.textContent = "This Short URL is not available for a public report.";
+      } else if (detailState === "error") {
+        refs.shortDetailStatus.textContent = "This Short URL report could not load. The overall report is still shown.";
+      } else if (detailState === "loaded" && detail?.data) {
+        const data = detail.data;
+        refs.shortDetailStatus.textContent = `Short code ${code}. Places are approximate. Small groups may be hidden.`;
+        refs.shortDetailData.hidden = false;
+        refs.shortKpiVisits.textContent = number(data.visits);
+        refs.shortKpiVisitors.textContent = data.estimated_daily_unique_ips == null ? "—" : number(data.estimated_daily_unique_ips);
+        const detailRows = (data.daily || []).map((row) => ({
+          date: row.date,
+          redirects: row.visits,
+          estimated_daily_unique_ips: 0
+        }));
+        renderLineChart("shortDaily", refs.shortDailyCanvas, detailRows, false, false);
+        populateShortDailyTable(data.daily || []);
+        populateShortTable(refs.shortBrowsers, data.browsers || [], (row) => row.browser || "Unknown");
+        populateShortTable(refs.shortCountries, data.countries || [], (row) => row.country || "Unknown");
+        populateShortTable(refs.shortCities, data.cities || [], (row) => [row.city, row.subdivision, row.country, row.region].filter(Boolean).join(", ") || "Unknown");
+      } else {
+        refs.shortDetailStatus.textContent = "Loading this Short URL…";
+      }
+    }
+
+    refs.note.hidden = false;
+    refs.note.textContent = "Short URL visits are separate from Long link visits. Estimated visitors can count the same person more than once across links and days. Active Short URLs is the current total.";
   }
 
   async function loadParameterValues() {
@@ -232,8 +438,17 @@
     const summaryData = summary.data;
 
     refs.status.hidden = true;
+    refs.shortOverallHeading.hidden = true;
     refs.kpis.hidden = false;
     refs.grid.hidden = false;
+    refs.shortDetail.hidden = true;
+    refs.shortDetailData.hidden = true;
+    destroyChart("shortDaily");
+    refs.kpiLinksLabel.textContent = "Links";
+    refs.kpiVisitorsLabel.textContent = "Estimated visitors";
+    refs.viaCard.hidden = false;
+    refs.parameterCard.hidden = false;
+    refs.browsersCard.hidden = false;
     refs.note.textContent = STATS_NOTE;
     refs.note.hidden = false;
 
@@ -337,7 +552,7 @@
     state.charts[key] = null;
   }
 
-  function renderLineChart(key, canvas, rows, suppressed) {
+  function renderLineChart(key, canvas, rows, suppressed, withUnique = true) {
     const total = rows.reduce((sum, row) => sum + row.redirects, 0);
     if (suppressed || total === 0) {
       destroyChart(key);
@@ -360,13 +575,13 @@
       labels,
       datasets: [
         { label: "Visits", data: visits, borderColor: COLOR, backgroundColor: COLOR, tension: 0 },
-        {
+        ...(withUnique ? [{
           label: "Estimated visitors",
           data: rows.map((row) => row.estimated_daily_unique_ips),
           borderColor: COLOR_SECOND,
           backgroundColor: COLOR_SECOND,
           tension: 0
-        }
+        }] : [])
       ]
     };
     if (state.charts[key]) {
@@ -446,6 +661,7 @@
   }
 
   function buildCsv() {
+    if (state.report === "short") return buildShortCsv();
     const { daily, links, via, agents, values, range } = state.last;
     const selectedText = (select) => select.options[select.selectedIndex]?.text || "";
     const rows = [
@@ -465,8 +681,49 @@
     return rows.map((row) => row.map(csvCell).join(",")).join("\r\n") + "\r\n";
   }
 
+  function buildShortCsv() {
+    const { summary, detail, detailState, range, code } = state.shortLast;
+    const overall = summary.data;
+    const rows = [
+      ["Marin Links Short URL stats"],
+      ["Period", `${range.from} to ${range.to}`],
+      [],
+      ["All Short URLs"],
+      ["Visits", overall.visits],
+      ["Estimated daily visitors", overall.estimated_daily_unique_ips ?? "Not available"],
+      ["Active Short URLs", overall.active_short_links],
+      [],
+      ["Section", "Label", "Visits"]
+    ];
+    (overall.daily || []).forEach((row) => rows.push(["All Short URLs daily", row.date, row.visits]));
+
+    if (code) {
+      rows.push([], ["One Short URL"], ["Short code", code]);
+      if (detailState === "suppressed") {
+        rows.push(["Status", SUPPRESSED_MESSAGE]);
+      } else if (detailState === "not_found") {
+        rows.push(["Status", "Not available for a public report"]);
+      } else if (detailState === "error") {
+        rows.push(["Status", "Report could not load"]);
+      } else if (detail?.data) {
+        const data = detail.data;
+        rows.push(
+          ["Visits", data.visits],
+          ["Estimated daily visitors", data.estimated_daily_unique_ips ?? "Not available"],
+          [],
+          ["Section", "Label", "Visits"]
+        );
+        (data.daily || []).forEach((row) => rows.push(["One Short URL daily", row.date, row.visits]));
+        (data.browsers || []).forEach((row) => rows.push(["Browsers", row.browser, row.visits]));
+        (data.countries || []).forEach((row) => rows.push(["Countries", row.country, row.visits]));
+        (data.cities || []).forEach((row) => rows.push(["Approximate cities", [row.city, row.subdivision, row.country, row.region].filter(Boolean).join(", "), row.visits]));
+      }
+    }
+    return rows.map((row) => row.map(csvCell).join(",")).join("\r\n") + "\r\n";
+  }
+
   function downloadCsv() {
-    if (!state.last) return;
+    if ((state.report === "short" && !state.shortLast) || (state.report !== "short" && !state.last)) return;
     const blob = new Blob(["\uFEFF", buildCsv()], { type: "text/csv;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
@@ -479,12 +736,29 @@
   }
 
   function rebuildCharts() {
-    if (!state.last) return;
+    if (!state.last && !state.shortLast) return;
     Object.keys(state.charts).forEach(destroyChart);
-    renderStats();
+    if (state.report === "short" && state.shortLast) renderShortStats();
+    else if (state.last) renderStats();
   }
 
   function bindStats() {
+    refs.report.addEventListener("change", () => {
+      state.report = refs.report.value === "short" ? "short" : "tracked";
+      setShortControls();
+      void loadStats();
+    });
+    refs.shortCodeShow.addEventListener("click", showShortCode);
+    refs.shortCodeInput.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") { event.preventDefault(); showShortCode(); }
+    });
+    refs.shortCodeClear.addEventListener("click", () => {
+      state.shortCode = "";
+      refs.shortCodeError.hidden = true;
+      refs.shortCodeInput.removeAttribute("aria-invalid");
+      setShortControls();
+      void loadStats();
+    });
     // A new choice drops any link or detail that came from the address.
     refs.period.addEventListener("change", () => void loadStats());
     refs.link.addEventListener("change", () => { state.pendingLink = ""; void loadStats(); });
@@ -507,6 +781,30 @@
       panelCreate: byId("panel-create"),
       panelStats: byId("panel-stats"),
       period: byId("stats-period"),
+      report: byId("stats-report"),
+      agencyField: byId("stats-agency-field"),
+      linkField: byId("stats-link-field"),
+      shortCodeField: byId("stats-short-code-field"),
+      shortCodeInput: byId("stats-short-code"),
+      shortCodeShow: byId("stats-short-show"),
+      shortCodeClear: byId("stats-short-clear"),
+      shortCodeError: byId("stats-short-code-error"),
+      shortOverallHeading: byId("stats-short-overall-heading"),
+      shortDetail: byId("stats-short-detail"),
+      shortDetailStatus: byId("stats-short-detail-status"),
+      shortDetailData: byId("stats-short-detail-data"),
+      shortKpiVisits: byId("stats-short-kpi-visits"),
+      shortKpiVisitors: byId("stats-short-kpi-visitors"),
+      shortDailyCanvas: byId("stats-short-daily-chart"),
+      shortDaily: byId("stats-short-daily"),
+      shortBrowsers: byId("stats-short-browsers"),
+      shortCountries: byId("stats-short-countries"),
+      shortCities: byId("stats-short-cities"),
+      kpiLinksLabel: byId("stats-kpi-links-label"),
+      kpiVisitorsLabel: byId("stats-kpi-visitors-label"),
+      viaCard: byId("stats-via-card"),
+      parameterCard: byId("stats-parameter-card"),
+      browsersCard: byId("stats-browsers-card"),
       link: byId("stats-link"),
       agency: byId("stats-agency"),
       csv: byId("stats-csv"),
@@ -544,6 +842,11 @@
     const detail = incoming.get("detail");
     if (detail && /^[A-Za-z0-9][A-Za-z0-9._~-]{0,63}$/.test(detail)) state.pendingParameter = detail;
 
+    const report = incoming.get("report");
+    state.report = report === "short" ? "short" : "tracked";
+    const code = incoming.get("code");
+    state.shortCode = code ? (normalizeShortCode(code) || "") : "";
+    setShortControls();
     bindTabs();
     bindStats();
     const view = incoming.get("view");

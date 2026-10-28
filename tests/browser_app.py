@@ -124,7 +124,7 @@ def verify_svg(svg: str, expected_url: str, *, transparent: bool, has_logo: bool
 
 
 
-TRACKER_ROOT = "https://misc.marinhhs.org/marin-qr-tracker/"
+TRACKER_ROOT = "https://l.marinhhs.org/"
 FORBIDDEN = "Use a link from an approved Marin County website."
 
 
@@ -392,10 +392,18 @@ def check_qr_output(context, base_url: str, folder: Path) -> None:
         require(square, "The code is not square without the address")
         require("marincounty.gov/innovation" in page.locator("#qr-canvas").get_attribute("aria-label"),
                 "Address missing from the image description")
-        # A short link prints itself under the code instead.
+        # A Short QR is made only after the explicit create action. It prints
+        # the confirmed Short URL under the code instead of the destination.
         page.locator("#length-short").check()
-        page.wait_for_function("() => document.querySelector('#qr-canvas').getAttribute('aria-label').includes('misc.marinhhs.org')")
-        require(page.locator("#qr-show-address").is_disabled(), "The address option stays on for a short link")
+        page.wait_for_function("() => !document.querySelector('#short-create').hidden")
+        require(page.locator("#qr-show-address").is_disabled(), "The address option stays on for a Short link")
+        require(page.locator("#download").is_disabled(), "A Short QR exists before it is created")
+        page.locator("#short-create").click()
+        short_url = f"{TRACKER_ROOT}sample0123"
+        wait_for_qr(page, short_url)
+        require(short_url.removeprefix("https://") in page.locator("#qr-canvas").get_attribute("aria-label"),
+                "The Short URL is missing from the image description")
+        require(decode_qr(canvas_png(page)) == short_url, "Short QR does not encode the confirmed server URL")
         page.locator("#length-long").check()
         page.wait_for_function("() => !document.querySelector('#qr-show-address').disabled")
         page.locator("#qr-show-address").uncheck()
@@ -526,7 +534,7 @@ def check_many_links(context, base_url: str, folder: Path) -> None:
         require(page.locator("#bulk-copy").get_attribute("data-copy-value").count("\n") == 2, "Copy all links value differs")
         path = download_to(page, "#bulk-csv", folder, "links.csv")
         table = csv_rows(path)
-        require(table[0] == ["Web address", "Your link", "Problem"], "CSV header differs")
+        require(table[0] == ["Web address", "Your link", "Status", "Problem"], "CSV header differs")
         require(len(table) == 7, "CSV row count differs")
         require(table[5][0] == "'=HYPERLINK(\"x\")", f"Formula was not guarded: {table[5][0]!r}")
         page.locator("#bulk-urls").fill("\n".join(f"https://marincounty.gov/p{i}" for i in range(101)))

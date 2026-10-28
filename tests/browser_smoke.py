@@ -66,7 +66,7 @@ def serve():
 # ---- Test data for the Brand Center and the tracker. No real network is used. ----
 
 BRAND_CENTER_ROOT = "https://marincountygov.github.io/marin-brand/"
-TRACKER_API = "https://misc.marinhhs.org/marin-qr-tracker/api/v1/"
+TRACKER_API = "https://l.marinhhs.org/s/api/v1/"
 BRAND_LIST = {"brands": [
     {"slug": "alpha-brand", "name": "Alpha Brand", "qrCodeLogo": "brands/alpha-brand/assets/qr-code-logos/square.png"},
     {"slug": "zeta-brand", "name": "Zeta Brand", "qrCodeLogo": "brands/zeta-brand/assets/qr-code-logos/square.png"},
@@ -127,6 +127,33 @@ def fulfill_app_data(route, brand_list: dict | None = BRAND_LIST, calls: list[st
     if full.startswith(TRACKER_API):
         path = url.path.split("/api/v1/", 1)[1]
         query = dict(part.split("=", 1) for part in url.query.split("&") if "=" in part)
+        if path == "capabilities":
+            route.fulfill(status=200, content_type="application/json", body=json.dumps({"data": {
+                "api_version": "v1", "short_url_base_url": "https://l.marinhhs.org/",
+                "server_base_url": "https://l.marinhhs.org/s/",
+                "creation": {"anonymous_enabled": True, "key_enabled": False}}}), headers=headers)
+            return True
+        if path == "short-links" and route.request.method == "POST":
+            # Deterministic test data only; no live link creation.
+            import hashlib
+            payload = json.loads(route.request.post_data or "{}")
+            code = "s" + hashlib.sha256(payload.get("destination", "").encode()).hexdigest()[:9]
+            route.fulfill(status=201, content_type="application/json",
+                          body=json.dumps({"data": {"id": hashlib.sha256(code.encode()).hexdigest()[:32], "code": code, "short_url": "https://l.marinhhs.org/"+code, "status": "active", "revision": 1, "created_at": "2026-10-28T18:00:00Z"}}), headers=headers)
+            return True
+        if path == "short-links/summary":
+            route.fulfill(status=200, content_type="application/json", body=json.dumps({"data": {
+                "visits": 22, "active_short_links": 3, "estimated_daily_unique_ips": 12,
+                "daily": [{"date": "2026-10-21", "visits": 9}, {"date": "2026-10-22", "visits": 13}]}}), headers=headers)
+            return True
+        if path.startswith("short-links/") and path.endswith("/stats"):
+            route.fulfill(status=200, content_type="application/json", body=json.dumps({"data": {
+                "code": path.split("/")[1], "visits": 7, "estimated_daily_unique_ips": 6,
+                "daily": [{"date": "2026-10-21", "visits": 3}, {"date": "2026-10-22", "visits": 4}],
+                "browsers": [{"browser": "Chrome", "visits": 7}],
+                "countries": [{"country": "US", "visits": 7}],
+                "cities": [{"country": "US", "subdivision": "CA", "city": "Novato", "region": "north-marin", "visits": 7}]}, "meta": {"suppressed": False}}), headers=headers)
+            return True
         if route.request.method != "GET":
             route.fulfill(status=405, body="read only", headers=headers)
             return True
@@ -249,11 +276,19 @@ def fixture_page(context, current_page, url: str, *, javascript: bool = True):
         page.evaluate("""([catalog, security, commits, hash]) => {
           window.location.hash = hash;
           window.__fixtureRequests = [];
-          window.fetch = async (input) => {
+          window.fetch = async (input, options={}) => {
             const url = String(input);
             window.__fixtureRequests.push(url);
             let body;
-            if (url.includes('catalog.json')) body = catalog;
+            if (url.includes('/short-links') && options.method === 'POST') {
+              const payload = JSON.parse(options.body);
+              const code = 'sample0123';
+              return new Response(JSON.stringify({data: {id: '00000000000000000000000000000001', code, short_url: 'https://l.marinhhs.org/'+code, status: 'active', revision: 1, created_at: '2026-10-28T18:00:00Z'}}), {status: 201, headers: {'Content-Type':'application/json'}});
+            }
+            if (url.includes('/short-links/summary')) body = {data: {visits: 22, active_short_links: 3, estimated_daily_unique_ips: 12, daily: [{date:'2026-10-21',visits:9},{date:'2026-10-22',visits:13}]}};
+            else if (url.includes('/short-links/') && new URL(url).pathname.endsWith('/stats')) body = {data: {code:'sample0123', visits:7, estimated_daily_unique_ips:6, daily:[{date:'2026-10-21',visits:3},{date:'2026-10-22',visits:4}], browsers:[{browser:'Chrome',visits:7}], countries:[{country:'US',visits:7}], cities:[{country:'US',subdivision:'CA',city:'Novato',visits:7}]}, meta: {suppressed:false}};
+            else if (url.includes('/capabilities')) body = {data: {short_url_base_url: 'https://l.marinhhs.org/', creation: {anonymous_enabled: true}}};
+            else if (url.includes('catalog.json')) body = catalog;
             else if (url.includes('security.json')) body = security;
             else if (url.includes('api.github.com')) body = commits;
             else throw new Error(`Unexpected fixture request: ${url}`);
@@ -273,6 +308,7 @@ def fixture_page(context, current_page, url: str, *, javascript: bool = True):
             "assets/authorized-domains.js",
             "assets/qr-image.js",
             "assets/qr-safety.js",
+            "assets/short-links-api.js",
             "assets/app.js",
             "assets/stats.js",
         ):

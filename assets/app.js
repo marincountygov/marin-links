@@ -1,7 +1,7 @@
 /*
  * Marin Links
- * Links and QR codes are made in the browser. Images stay in the browser and
- * are never uploaded. Visits are counted by the County tracker. Shared navigation, copy feedback, and app information are owned by
+ * Long links and QR images are made in the browser. Creating a Short link
+ * explicitly sends the completed URL to Marin Links Server. Shared navigation, copy feedback, and app information are owned by
  * the MarinOS App Shell.
  */
 
@@ -100,6 +100,19 @@
     logos: [...(window.MarinLinksPresets?.logos || [])],
     finalUrl: "",
     renderResult: null,
+    shortCandidate: null,
+    shortSingle: null,
+    lastShortCompleted: null,
+    shortEpoch: 0,
+    shortCapabilities: null,
+    shortCanonicalBase: window.MarinLinksTracker?.serverRoot || "",
+    shortAvailabilityChecked: false,
+    shortAvailabilityMessage: "",
+    shortCreationUnavailable: false,
+    shortBatch: null,
+    previousShortBatch: null,
+    shortBatchLocked: [],
+    renderSnapshot: null,
     openParameterPicker: null
   };
 
@@ -255,16 +268,170 @@
     return isQrMode() ? "Add a web address to make a QR code." : "Add a web address to make a link.";
   }
 
-  // Every link and QR code goes through the tracker, which counts the visit and
-  // then sends people to the web address.
-  function isShortLink() {
+  // Long links keep the local tracking URL workflow. Short links are registered by API only.
+  function isShortMode() {
     return document.querySelector('input[name="length"]:checked')?.value === "short";
   }
 
   function buildTrackedUrl(destinationHref) {
-    const base = isShortLink() ? window.MarinLinksTracker.redirect : window.MarinLinksTracker.endpoint;
-    return `${base}?d=${encodeURIComponent(destinationHref)}`;
+    return `${window.MarinLinksTracker.endpoint}?d=${encodeURIComponent(destinationHref)}`;
   }
+
+  function shortPayload(destination, parameters) {
+    const campaign = parameters.find((item) => item.name === "utm_campaign")?.value || "";
+    const medium = parameters.find((item) => item.name === "utm_medium")?.value || "";
+    const mediumChoice = window.MarinLinksPresets?.channels?.find((item) =>
+      item.value === medium || item.id === medium || item.legacy?.includes(medium)
+    );
+    const mediumId = mediumChoice?.id || medium;
+    const channel = isQrMode() ? "qr" : (["print", "email", "social"].includes(mediumId) ? mediumId : "other");
+    return {
+      destination,
+      alias: null,
+      label: "",
+      channel,
+      campaign: normalizeCampaign(campaign),
+      source_path: window.MarinLinksTracker.sourcePath
+    };
+  }
+
+  function shortSnapshot(payload) {
+    return JSON.stringify(payload);
+  }
+
+  function renderShortAvailability() {
+    const visible = isShortMode() && Boolean(state.shortAvailabilityMessage);
+    if (refs.shortAvailability) {
+      refs.shortAvailability.textContent = state.shortAvailabilityMessage;
+      refs.shortAvailability.hidden = !visible || isBulkMode();
+    }
+    if (refs.shortBulkAvailability) {
+      refs.shortBulkAvailability.textContent = state.shortAvailabilityMessage;
+      refs.shortBulkAvailability.hidden = !visible || !isBulkMode();
+    }
+  }
+
+  async function checkShortAvailability() {
+    if (state.shortAvailabilityChecked || !window.MarinLinksShortApi) return;
+    state.shortAvailabilityChecked = true;
+    try {
+      const data = await window.MarinLinksShortApi.capabilities();
+      state.shortCapabilities = data;
+      state.shortCanonicalBase = data.short_url_base_url || window.MarinLinksTracker.serverRoot;
+      state.shortCreationUnavailable = data.creation?.anonymous_enabled === false;
+      state.shortAvailabilityMessage = state.shortCreationUnavailable
+        ? "Short links are not available. Ask your administrator to check the settings and approved websites."
+        : "";
+    } catch {
+      // This check is only a hint. The Create button still makes the final check.
+      state.shortCreationUnavailable = false;
+      state.shortAvailabilityMessage = "We could not check short links. You can still try to create one.";
+    }
+    renderShortAvailability();
+    if (isShortMode() && state.shortCandidate) showShortCandidate(
+      state.shortCandidate.payload,
+      state.shortCandidate.color,
+      state.shortCandidate.transparentBackground
+    );
+    if (isShortMode() && state.shortBatch) renderShortBulk();
+  }
+
+  function displayPriorShort() {
+    const prior = state.lastShortCompleted;
+    if (!prior || !isShortMode() || isBulkMode() || (state.shortCandidate && prior.snapshot === state.shortCandidate.snapshot)) {
+      refs.shortPrior.hidden = true;
+      return;
+    }
+    refs.shortPrior.hidden = false;
+    refs.shortPriorUrl.textContent = prior.result.shortUrl;
+    refs.shortPriorCopy.dataset.copyValue = prior.result.shortUrl;
+  }
+
+  function showShortCandidate(payload, color, transparentBackground) {
+    const snapshot = shortSnapshot(payload);
+    state.shortCandidate = { snapshot, payload, color, transparentBackground };
+    refs.shortActions.hidden = false;
+    const attempt = state.shortSingle;
+    const matches = attempt?.snapshot === snapshot;
+    const ready = Boolean(matches && attempt.result);
+    const blockedRetry = Boolean(matches && attempt && attempt.canRetry === false && !attempt.result);
+    refs.shortDestination.textContent = payload.destination;
+    refs.shortCreate.disabled = Boolean(attempt?.inFlight) || ready || blockedRetry || state.shortCreationUnavailable;
+    refs.shortCreate.textContent = attempt?.inFlight
+      ? "Creating…"
+      : (matches && attempt?.message && attempt.canRetry !== false ? "Try again" : "Create short link");
+    refs.shortCreate.hidden = ready;
+    refs.shortStatus.hidden = !matches || (!attempt?.message && !ready);
+    refs.shortStatus.textContent = ready ? "Short link created." : (matches ? attempt.message || "" : "");
+    renderShortAvailability();
+    displayPriorShort();
+    return ready ? attempt.result.shortUrl : null;
+  }
+
+  async function createSingleShort() {
+    const candidate = state.shortCandidate;
+    if (
+      !candidate
+      || state.updateTimer
+      || !isShortMode()
+      || isBulkMode()
+      || state.shortSingle?.inFlight
+      || state.shortCreationUnavailable
+      || !window.MarinLinksShortApi
+    ) return;
+
+    let attempt = state.shortSingle;
+    if (!attempt || attempt.snapshot !== candidate.snapshot) {
+      attempt = {
+        snapshot: candidate.snapshot,
+        payload: candidate.payload,
+        key: window.MarinLinksShortApi.requestKey(),
+        inFlight: false,
+        result: null,
+        uncertain: false,
+        canRetry: true,
+        message: ""
+      };
+      state.shortSingle = attempt;
+    }
+    if (attempt.result || attempt.canRetry === false) return;
+
+    const epoch = state.shortEpoch;
+    attempt.inFlight = true;
+    attempt.message = "Creating short link…";
+    refs.shortCreate.disabled = true;
+    refs.shortCreate.textContent = "Creating…";
+    refs.shortStatus.hidden = false;
+    refs.shortStatus.textContent = attempt.message;
+    refs.shortActions.setAttribute("aria-busy", "true");
+    refs.resetForm.disabled = true;
+    try {
+      const result = await window.MarinLinksShortApi.create(
+        attempt.payload,
+        attempt.key,
+        state.shortCanonicalBase || state.shortCapabilities?.short_url_base_url || window.MarinLinksTracker.serverRoot
+      );
+      if (epoch !== state.shortEpoch) return;
+      attempt.result = result;
+      attempt.uncertain = false;
+      attempt.canRetry = false;
+      attempt.message = "Short link created.";
+      state.lastShortCompleted = { snapshot: attempt.snapshot, payload: attempt.payload, result };
+      announce("Short link created. You can copy it now.");
+    } catch (error) {
+      if (epoch !== state.shortEpoch) return;
+      attempt.uncertain = Boolean(error.uncertain);
+      attempt.canRetry = error.canRetry !== false;
+      attempt.message = error.message || "The short link could not be created.";
+      announce(attempt.message);
+    } finally {
+      attempt.inFlight = false;
+      refs.shortActions.removeAttribute("aria-busy");
+      refs.resetForm.disabled = false;
+      if (epoch === state.shortEpoch) void updatePreview();
+    }
+  }
+
 
   function applyMode() {
     const qr = isQrMode();
@@ -281,6 +448,10 @@
     if (refs.sizeNote) syncDownloadControls();
     refs.downloadGroup.hidden = !qr;
     refs.scanNote.hidden = !qr;
+    refs.shortActions.hidden = true;
+    refs.shortBulkActions.hidden = true;
+    refs.shortPrior.hidden = true;
+    refs.shortBulkPrior.hidden = true;
   }
 
   function exportsAreReady() {
@@ -1088,6 +1259,9 @@
 
   async function updatePreview() {
     cancelScheduledUpdate();
+    if (isShortMode()) void checkShortAvailability();
+    state.shortCandidate = null;
+    refs.previewCard.dataset.shortMode = String(isShortMode());
     if (isBulkMode()) {
       state.generationToken += 1;
       state.generating = false;
@@ -1126,11 +1300,26 @@
       parameterResult.parameters.forEach(({ name, value }) => {
         final.searchParams.append(name, value);
       });
-      const finalUrl = buildTrackedUrl(final.href);
-      // A short link prints itself under the code. Otherwise the page address prints when asked for.
-      refs.showAddress.disabled = isShortLink();
+      refs.showAddress.disabled = isShortMode();
+      let finalUrl;
+      if (isShortMode()) {
+        finalUrl = showShortCandidate(shortPayload(final.href, parameterResult.parameters), color, transparentBackground);
+        if (!finalUrl) {
+          showEmpty("Review the web address, then choose Create short link.");
+          refs.shortActions.hidden = false;
+          displayPriorShort();
+          return;
+        }
+      } else {
+        state.shortCandidate = null;
+        refs.shortActions.hidden = true;
+        refs.shortPrior.hidden = true;
+        finalUrl = buildTrackedUrl(final.href);
+      }
+
+      // A confirmed Short QR prints the Short URL itself. Long QR codes may print the destination page.
       let address = "";
-      if (qr && isShortLink()) address = finalUrl.replace(/^https?:\/\//, "");
+      if (qr && isShortMode()) address = finalUrl.replace(/^https?:\/\//, "");
       else if (qr && refs.showAddress.checked) address = addressCaption(destination.url);
 
       if (!qr) {
@@ -1213,6 +1402,12 @@
   }
 
   function updateBulk() {
+    if (isShortMode()) {
+      updateShortBulk();
+      return;
+    }
+    refs.shortBulkActions.hidden = true;
+    refs.shortBulkPrior.hidden = true;
     clearFieldError(refs.bulkUrls, refs.bulkError);
     const addresses = refs.bulkUrls.value.split(/\r?\n/).map(pickAddress).filter(Boolean);
     if (!addresses.length) {
@@ -1253,7 +1448,9 @@
         link.className = "qr-bulk-link";
         link.textContent = row.link;
       }
-      tr.append(address, link);
+      const status = document.createElement("td");
+      status.textContent = row.problem ? "Needs correction" : "Created";
+      tr.append(address, link, status);
       refs.bulkRowsBody.append(tr);
     });
 
@@ -1268,6 +1465,195 @@
     refs.previewReady.hidden = false;
   }
 
+  // ---- Registered short links: one explicit request per row ----
+
+  function prepareShortBulk() {
+    clearFieldError(refs.bulkUrls, refs.bulkError);
+    const addresses = refs.bulkUrls.value.split(/\r?\n/).map(pickAddress).filter(Boolean);
+    if (!addresses.length) return null;
+    if (addresses.length > MAX_BULK_LINES) {
+      setFieldError(refs.bulkUrls, refs.bulkError, `Use up to ${MAX_BULK_LINES} web addresses at a time. You entered ${addresses.length}.`);
+      return null;
+    }
+    const parameters = collectParameters();
+    if (!parameters.valid) return null;
+    const rows = addresses.map((address) => {
+      const parsed = parseDestination(address);
+      if (parsed.error || parsed.empty) return { address, destination: "", link: "", status: "Needs correction", problem: parsed.error || "Enter a web address.", payload: null, key: null };
+      const url = new URL(parsed.url.href);
+      parameters.parameters.forEach(({ name, value }) => url.searchParams.append(name, value));
+      return { address, destination: url.href, link: "", status: "Waiting", problem: "", payload: shortPayload(url.href, parameters.parameters), key: null };
+    });
+    return { signature: JSON.stringify(rows.map((row) => [row.address, row.destination, row.payload])), rows, started: false, running: false, completed: false, stopRequested: false, reason: "" };
+  }
+
+  function showPriorBatch() {
+    const previous = state.previousShortBatch;
+    const links = previous?.rows.filter((row) => row.status === "Created" && row.link).map((row) => row.link) || [];
+    refs.shortBulkPrior.hidden = !isShortMode() || !isBulkMode() || links.length === 0;
+    if (links.length) {
+      refs.shortBulkPrior.querySelector("p").textContent = `${links.length} short links from your previous batch. These do not match the current form.`;
+      refs.previousBulkCopy.dataset.copyValue = links.join("\n");
+    }
+  }
+
+  function renderShortBulk() {
+    const batch = state.shortBatch;
+    if (!batch) return;
+    const created = batch.rows.filter((row) => row.status === "Created" && row.link);
+    const valid = batch.rows.filter((row) => row.payload);
+    refs.bulkRowsBody.textContent = "";
+    batch.rows.forEach((row) => {
+      const tr = document.createElement("tr");
+      const address = document.createElement("td");
+      address.textContent = row.address;
+      const link = document.createElement("td");
+      if (row.link) {
+        link.textContent = row.link;
+        link.className = "qr-bulk-link";
+      } else link.textContent = "—";
+      const status = document.createElement("td");
+      const label = document.createElement("span");
+      label.textContent = row.status;
+      label.className = "short-row-status";
+      status.append(label);
+      if (row.problem) {
+        const problem = document.createElement("p");
+        problem.className = "app-help-text";
+        problem.textContent = row.problem;
+        status.append(problem);
+      }
+      tr.append(address, link, status);
+      refs.bulkRowsBody.append(tr);
+    });
+    state.bulkRows = batch.rows;
+    refs.bulkCopy.dataset.copyValue = created.map((row) => row.link).join("\n");
+    refs.bulkCopy.disabled = created.length === 0;
+    refs.bulkCsv.disabled = false;
+    refs.bulkSummary.textContent = batch.started
+      ? `${created.length} of ${valid.length} eligible short links created.`
+      : `${batch.rows.length} rows: ${valid.length} ready, ${batch.rows.length - valid.length} need correction. Each saved link counts toward County system limits.`;
+    refs.shortBulkProgress.textContent = batch.running
+      ? `Created ${created.length} of ${valid.length}. ${batch.reason}`
+      : (batch.reason || `${created.length} created. ${batch.rows.filter((row) => row.status === "Not attempted").length} not attempted.`);
+    refs.shortBulkCreate.hidden = batch.started;
+    refs.shortBulkCreate.disabled = batch.running || valid.length === 0 || state.shortCreationUnavailable;
+    refs.shortBulkRetry.hidden = !batch.started || batch.running || !batch.rows.some((row) => ["Waiting", "Not attempted", "Unknown—retry safely", "Rate limited"].includes(row.status));
+    refs.shortBulkStop.hidden = !batch.running;
+    refs.shortBulkStop.disabled = Boolean(batch.stopRequested);
+    refs.previewEmpty.hidden = true;
+    refs.previewReady.hidden = false;
+    refs.shortBulkActions.hidden = false;
+    renderShortAvailability();
+    showPriorBatch();
+  }
+
+  function updateShortBulk() {
+    const candidate = prepareShortBulk();
+    refs.shortActions.hidden = true;
+    refs.shortPrior.hidden = true;
+    if (!candidate) {
+      state.bulkRows = [];
+      showEmpty(refs.bulkUrls.value.trim() ? "Fix the web addresses or tracking details before creating short links." : emptyMessage());
+      refs.shortBulkActions.hidden = true;
+      showPriorBatch();
+      return;
+    }
+    if (!state.shortBatch || candidate.signature !== state.shortBatch.signature) {
+      if (state.shortBatch?.rows.some((row) => row.status === "Created" || row.status === "Unknown—retry safely")) {
+        state.previousShortBatch = state.shortBatch;
+      }
+      state.shortBatch = candidate;
+    }
+    renderShortBulk();
+  }
+
+  function lockBulkInputs(locked) {
+    if (locked) {
+      state.shortBatchLocked = [...refs.form.querySelectorAll("input, select, textarea, button")].filter((input) => !input.disabled);
+      state.shortBatchLocked.forEach((input) => { input.disabled = true; });
+    } else {
+      state.shortBatchLocked.forEach((input) => { input.disabled = false; });
+      state.shortBatchLocked = [];
+    }
+  }
+
+  async function createShortBatch(retry = false) {
+    const batch = state.shortBatch;
+    if (
+      !isShortMode()
+      || !isBulkMode()
+      || !batch
+      || state.updateTimer
+      || batch.running
+      || state.shortCreationUnavailable
+      || (!retry && batch.started)
+    ) return;
+    const epoch = state.shortEpoch;
+    batch.started = true;
+    batch.completed = false;
+    batch.running = true;
+    batch.stopRequested = false;
+    batch.reason = "Creating short links one at a time…";
+    lockBulkInputs(true);
+    renderShortBulk();
+    try {
+      for (const row of batch.rows) {
+        if (!row.payload || row.status === "Created" || row.status === "Needs correction") continue;
+        if (batch.stopRequested) break;
+        if (!row.key) row.key = window.MarinLinksShortApi.requestKey();
+        row.status = "Creating";
+        row.problem = "";
+        renderShortBulk();
+        try {
+          const result = await window.MarinLinksShortApi.create(
+            row.payload,
+            row.key,
+            state.shortCanonicalBase || state.shortCapabilities?.short_url_base_url || window.MarinLinksTracker.serverRoot
+          );
+          if (epoch !== state.shortEpoch) break;
+          row.link = result.shortUrl;
+          row.status = "Created";
+        } catch (error) {
+          if (epoch !== state.shortEpoch) break;
+          row.problem = error.message || "The County system could not create this link.";
+          if (error.uncertain) {
+            row.status = "Unknown—retry safely";
+            batch.reason = "The last request may have worked. Retry remaining without changing the list.";
+            batch.stopRequested = true;
+          } else if (error.status === 429) {
+            row.status = "Rate limited";
+            batch.reason = "Too many short links were requested. Try again later. Links already made are kept.";
+            batch.stopRequested = true;
+          } else if (error.stopBatch) {
+            row.status = "Not attempted";
+            batch.reason = error.message;
+            batch.stopRequested = true;
+          } else {
+            row.status = "Needs correction";
+          }
+        }
+        renderShortBulk();
+      }
+      if (batch.stopRequested) {
+        batch.rows.filter((row) => row.status === "Waiting").forEach((row) => { row.status = "Not attempted"; });
+        if (!batch.reason || batch.reason.includes("one at a time")) batch.reason = "Stopped. Links already made are kept. Retry remaining when ready.";
+      } else batch.reason = "Finished. You can copy or download the short links.";
+    } finally {
+      batch.running = false;
+      batch.completed = true;
+      lockBulkInputs(false);
+      if (epoch === state.shortEpoch) {
+        renderShortBulk();
+        announce(batch.reason);
+      }
+    }
+  }
+
+  function downloadPreviousBulkCsv() {
+    if (state.previousShortBatch) saveBulkCsv(state.previousShortBatch.rows, "marin-links-previous-batch.csv");
+  }
+
   // A cell that starts with = + - or @ could run as a formula in a spreadsheet, so it gets a leading apostrophe.
   function csvCell(value) {
     let text = String(value ?? "");
@@ -1275,12 +1661,15 @@
     return /[",\n\r]/.test(text) ? `"${text.replaceAll('"', '""')}"` : text;
   }
 
-  function downloadBulkCsv() {
-    if (!state.bulkRows.length) return;
-    const rows = [["Web address", "Your link", "Problem"], ...state.bulkRows.map((row) => [row.address, row.link, row.problem])];
+  function saveBulkCsv(entries, filename) {
+    const rows = [["Web address", "Your link", "Status", "Problem"], ...entries.map((row) => [row.address, row.link || "", row.status || (row.problem ? "Needs correction" : "Created"), row.problem || ""])];
     const text = rows.map((row) => row.map(csvCell).join(",")).join("\r\n") + "\r\n";
-    saveBlob(new Blob(["\uFEFF", text], { type: "text/csv;charset=utf-8" }), "marin-links.csv");
+    saveBlob(new Blob(["\uFEFF", text], { type: "text/csv;charset=utf-8" }), filename);
     announce("CSV downloaded.");
+  }
+
+  function downloadBulkCsv() {
+    if (state.bulkRows.length) saveBulkCsv(state.bulkRows, "marin-links.csv");
   }
 
   // How small the code can be printed, and a note when it is crowded. Each square should be about half a millimeter.
@@ -1323,6 +1712,10 @@
 
   function scheduleUpdate() {
     cancelScheduledUpdate();
+    refs.shortActions.hidden = true;
+    refs.shortBulkActions.hidden = true;
+    state.shortCandidate = null;
+    refs.previewCard.dataset.shortMode = String(isShortMode());
     state.generationToken += 1;
     state.generating = false;
     refs.previewCard.removeAttribute("aria-busy");
@@ -1599,6 +1992,14 @@
     state.imageToken += 1;
     state.generationToken += 1;
     state.generating = false;
+    state.shortEpoch += 1;
+    state.shortSingle = null;
+    state.shortCandidate = null;
+    state.lastShortCompleted = null;
+    state.shortBatch = null;
+    state.previousShortBatch = null;
+    refs.shortPrior.hidden = true;
+    refs.shortBulkPrior.hidden = true;
     refs.previewCard.removeAttribute("aria-busy");
 
     refs.form.reset();
@@ -1624,15 +2025,29 @@
   function bindEvents() {
     refs.form.addEventListener("submit", (event) => {
       event.preventDefault();
-      void updatePreview();
+      if (isShortMode()) {
+        if (isBulkMode()) void createShortBatch();
+        else void createSingleShort();
+      } else void updatePreview();
     });
-
+    refs.shortCreate.addEventListener("click", () => void createSingleShort());
+    refs.shortBulkCreate.addEventListener("click", () => void createShortBatch());
+    refs.shortBulkStop.addEventListener("click", () => {
+      if (state.shortBatch) state.shortBatch.stopRequested = true;
+      refs.shortBulkStop.disabled = true;
+      announce("Stopping after the current request.");
+    });
+    refs.shortBulkRetry.addEventListener("click", () => void createShortBatch(true));
+    refs.previousBulkCsv.addEventListener("click", () => downloadPreviousBulkCsv());
     refs.destination.addEventListener("input", scheduleUpdate);
     refs.bulkUrls.addEventListener("input", scheduleUpdate);
     refs.bulkCopy.addEventListener("pointerdown", cancelScheduledUpdate);
     refs.bulkCsv.addEventListener("click", downloadBulkCsv);
     document.querySelectorAll('input[name="length"]').forEach((radio) => {
-      radio.addEventListener("change", scheduleUpdate);
+      radio.addEventListener("change", () => {
+        if (isShortMode()) void checkShortAvailability();
+        scheduleUpdate();
+      });
     });
     document.querySelectorAll('input[name="background"]').forEach((radio) => {
       radio.addEventListener("change", scheduleUpdate);
@@ -1769,6 +2184,23 @@
       designSection: byId("design-section"),
       scanNote: byId("scan-note"),
       copyLink: byId("copy-link-primary"),
+      shortActions: byId("short-create-actions"),
+      shortCreate: byId("short-create"),
+      shortDestination: byId("short-destination"),
+      shortStatus: byId("short-status"),
+      shortAvailability: byId("short-availability"),
+      shortBulkAvailability: byId("short-bulk-availability"),
+      shortPrior: byId("short-prior"),
+      shortPriorUrl: byId("short-prior-url"),
+      shortPriorCopy: byId("short-prior-copy"),
+      shortBulkActions: byId("short-bulk-actions"),
+      shortBulkCreate: byId("short-bulk-create"),
+      shortBulkRetry: byId("short-bulk-retry"),
+      shortBulkStop: byId("short-bulk-stop"),
+      shortBulkProgress: byId("short-bulk-progress"),
+      shortBulkPrior: byId("short-bulk-prior"),
+      previousBulkCopy: byId("short-bulk-prior-copy"),
+      previousBulkCsv: byId("short-bulk-prior-csv"),
       resetForm: byId("reset-form"),
       previewCard: byId("qr-preview-card"),
       previewEmpty: byId("preview-empty"),
@@ -1791,6 +2223,7 @@
       && window.MarinQrCode?.QRRSBlock
       && window.MarinQrImage?.prepare
       && window.MarinLinksTracker?.endpoint
+      && window.MarinLinksShortApi?.create
       && window.MarinLinksPresets?.agencies?.length
       && window.MarinQrSafety?.createModel
       && window.MarinQrSafety?.findLargestLogoPlan

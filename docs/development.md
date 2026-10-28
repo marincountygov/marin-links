@@ -14,8 +14,9 @@ Open `http://127.0.0.1:8765/`. No application build step is required.
 
 - `index.html`: workflow markup and user-facing content.
 - `assets/app.js`: Create tab. URL validation, tracking fields, QR and link output, many links, print size help, downloads.
-- `assets/stats.js`: tabs and the Stats tab. Tracker requests, Chart.js charts, CSV, and shared Stats links.
-- `assets/tracker-config.js`: tracker addresses.
+- `assets/stats.js`: tabs and the Stats tab. Read-only report requests, Chart.js charts, CSV, and shared Stats links.
+- `assets/tracker-config.js`: trusted server root, application source path, and derived routes.
+- `assets/short-links-api.js`: Marin Links Server v0.4.5 capability, creation, response-validation, and retry-key adapter.
 - `assets/presets.js`: saved campaigns and the backup list of Marin logos. Add a saved campaign here.
 - `data/agencies.json`: the master list of agencies, departments, and divisions. After a change, run `python3 scripts/build-agencies.py` to rebuild `assets/agencies.js`. See `data/README.md`.
 - `assets/app.css`: styles for this app only.
@@ -63,7 +64,7 @@ The browser workflow test needs:
 - OpenCV (`cv2`) and NumPy;
 - `pyzbar` plus the system ZBar library for the most reliable decode check. OpenCV is the fallback decoder.
 
-The in-memory shell fixture does not verify HTTP asset loading, defer timing, home-link document reload, same-origin CSP loading, or Referer delivery. Run the full local-HTTP suite or test the deployed app before release.
+The in-memory Short workflow additionally needs CairoSVG to decode SVG exports without following links. It mocks capability, creation, and Stats requests; it never sends a live POST or opens a live Short URL. The tests cover exact v0.4.5 JSON and headers, 200/201 replay handling, lost responses, temporary failures, rate limits, partial batches, strict returned URLs, and separate overall/per-code reports. The in-memory shell fixture does not verify HTTP asset loading, defer timing, home-link document reload, same-origin CSP loading, or Referer delivery. Run the full local-HTTP suite before release.
 
 The workflow test independently decodes the generated canvas, downloaded PNG, and rasterized SVG. It checks opaque and transparent backgrounds, SVG output with and without a center image, square and wide images, transparent trimming, long-link QR structures, center-image size limits, and the retained hidden color implementation.
 
@@ -88,7 +89,7 @@ The Logo dropdown reads `https://marincountygov.github.io/marin-brand/brands.jso
 
 ## Stats and the tracker
 
-`assets/stats.js` calls the tracker's public API. The API takes one filter pair at a time, which is why Stats filters by agency only. The QR codes and links chart reads the `via` label that Create adds. Keep the shared Stats link parameters (`view`, `period`, `agency`, `link`, `detail`) in step with `statsAddress()`.
+`assets/stats.js` calls the server's public read-only routes. Tracked-link reports use `/s/api/v1/summary`, `/daily`, `/links`, `/parameters`, `/parameters/values`, and `/agents`. Short reports use `/s/api/v1/short-links/summary` and `/s/api/v1/short-links/{known-code}/stats`. Do not add a public code catalogue or mix Long and Short counts. The tracked API takes one filter pair at a time, which is why that report filters by agency only. The QR codes and links chart reads the `via` label that Create adds. Keep the shared Stats parameters (`view`, `period`, `agency`, `link`, `detail`, `report`, `code`) in step with `statsAddress()`.
 
 `MarinQrSafety.toSvg()` must use the same checked model and center-image plan as the canvas. Keep QR modules as vector paths. Any center image must be embedded as a local PNG data URL, never an external reference. Keep the 1,600-pixel longest-side limit unless print tests justify a reviewed change. Exported SVG files must remain script-free.
 
@@ -101,7 +102,7 @@ Rendering changes require tests that:
 
 ## Hidden features
 
-`FEATURES.qrColorPicker` in `assets/app.js` is `false` for 0.2.1. The HTML color field also has `hidden` so it stays unavailable if JavaScript fails. Keep the inputs, validation, contrast gate, rendering path, and tests in place until the feature is approved for release. Enabling it later should require changing the feature flag and reviewing the user-facing help text, not rebuilding the color system.
+`FEATURES.qrColorPicker` in `assets/app.js` is `false` for 0.2.0. The HTML color field also has `hidden` so it stays unavailable if JavaScript fails. Keep the inputs, validation, contrast gate, rendering path, and tests in place until the feature is approved for release. Enabling it later should require changing the feature flag and reviewing the user-facing help text, not rebuilding the color system.
 
 ## Manual review
 
@@ -114,12 +115,13 @@ For each release, verify:
 5. Review at 320 CSS pixels and 200% zoom without horizontal scrolling.
 6. Review light, dark, forced-colors, and reduced-motion settings.
 7. Download PNG at each print size and SVG in the supported County browsers. Check the smallest print size note and the crowded code note.
-8. Try Many links with good and bad addresses, Copy all links, and Download CSV. Open the CSV in a spreadsheet.
+8. Try Add many web addresses with good and bad addresses, Copy all links, and Download CSV. Open the CSV in a spreadsheet.
 9. Scan a plain QR and a QR with each Marin logo on at least two phone camera apps.
 10. Print each PNG and SVG at its planned size and scan the printed copy.
-11. Open the Network panel. Confirm requests go only to the tracker API, the Brand Center, and the shared MarinOS sources, and that no web address or file is sent.
-12. On Stats, change the time, agency, and link. Use Copy link, open it in a new tab, and download the CSV.
-13. Review all user-facing text for a nontechnical audience at about a sixth-grade reading level.
+11. Open the Network panel. Confirm Long preview, QR preview/export, copy, and Stats loading never send the entered destination. Confirm only the explicit Short action sends the completed destination to the configured County service. Confirm no file, API key, or cookie is sent.
+12. In Short mode, confirm typing and switching controls make no POST. Test one Link, one QR, and an Add many web addresses batch with mocked responses. Confirm an uncertain retry keeps the same request key and a changed form gets a new key.
+13. On Stats, review Tracked links, All Short URLs, and One Short URL separately. Test Copy link, suppression, a missing code, and CSV output without private destinations.
+14. Review all user-facing text for a nontechnical audience at about a sixth-grade reading level.
 
 ## Security metadata
 

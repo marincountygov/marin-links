@@ -1,12 +1,12 @@
 # Marin Links
 
-Marin Links is a static MarinOS app that makes links and QR codes for approved Marin County web pages, and shows how often they are used. Links and QR codes are made in the browser. Every one goes through the County tracker, which counts the visits.
+Marin Links is a static MarinOS app that makes links and QR codes for approved Marin County web pages, and shows how often they are used. Long tracking links and QR images are made in the browser. Choosing Short and clicking **Create short link** sends the completed destination and selected marketing details to Marin Links Server (`https://l.marinhhs.org/`), which returns a registered short URL. Only a confirmed server response can be copied or used in a QR code.
 
 - **Audience:** County of Marin staff
 - **Owner:** County of Marin
 - **Repository:** `marin-links`
 - **Status:** Alpha
-- **Current release:** 0.1.0
+- **Current release:** 0.2.0
 - **Deployment target:** GitHub Pages
 
 ## Features
@@ -14,16 +14,18 @@ Marin Links is a static MarinOS app that makes links and QR codes for approved M
 **Create**
 
 - Choose **Link** or **QR code**. With Link, tick **Add many web addresses** to make links for a list.
-- Accepts a complete HTTPS URL, checked against an explicit allowlist. A public `?dest=any` mode allows any HTTPS hostname and keeps every other check.
-- Tracking: Channel, Agency (the County list, with divisions), Campaign (saved ones or a new name), Send date, and extra tracking details with dropdowns for common values. Existing query strings and fragments are kept.
+- Accepts a complete HTTPS URL, checked against an explicit allowlist. A public `?dest=any` mode allows any HTTPS hostname and keeps every other local check. It does not bypass the server allowlist for Short registration.
+- Tracking: Channel, Source, Agency (the County list, with divisions), Campaign, Content, Send date, and extra tracking details. Existing query strings and fragments are kept.
 - Every web address gets a `via=qr` or `via=link` label, so Stats can tell printed codes from shared links.
-- **Add many web addresses:** up to 100 web addresses at once, with a table of links, Copy all links, and Download CSV.
+- **Length:** Long creates a tracking redirect locally. Short requires clicking **Create short link**; it registers the destination on the server and returns a stable short URL.
+- **Add many web addresses:** up to 100 web addresses at once. Short mode creates them one at a time with progress, per-row errors, Stop, safe Retry remaining, Copy all, and Download CSV. Server limits may stop a batch early.
 - **QR code:** a Marin logo from the Brand Center in the middle (A to Z list, read from the Brand Center), print size help, a note for crowded codes, and one Download button for PNG or SVG. PNG is made at the chosen print size.
 - QR safety: high error correction, a four-module quiet zone, a white backing behind the logo, a conservative correction budget, and nothing layered over the logo.
 
 **Stats**
 
-- Visits over time, QR codes and links, top links, tracking details, and browsers, from the tracker's public API.
+- **Tracked links**: visits over time, QR codes and links, top links, tracking details, and browsers from the server's public API.
+- **Short URLs**: overall visits, estimated visitors, and the current active Short URL count; enter a known short code or server URL to view its daily, browser and approximate geographic breakdowns. The public API does not enumerate short URLs.
 - Filter by time, agency, or link. Copy link shares the choices. Download CSV saves the numbers.
 - Estimated visitors is a guess, not a count of people. Numbers the tracker holds back show "Too few visits to show."
 
@@ -86,7 +88,8 @@ assets/
   app.css                  Marin Links layout and styles
   app.js                   Create tab: validation, tracking, QR, links, many links, downloads
   stats.js                 Tabs and the Stats tab: tracker requests, charts, CSV, shared links
-  tracker-config.js        Tracker addresses
+  tracker-config.js        Configurable serverRoot (default https://l.marinhhs.org/) and GitHub Pages sourcePath
+  short-links-api.js       Anonymous JSON POST adapter, response validation, idempotent retry handling
   agencies.js              Agency list (generated from data/agencies.json, do not edit)
   presets.js               Saved campaigns and the backup list of logos
   authorized-domains.js    Auditable destination allowlist
@@ -99,7 +102,7 @@ vendor/
 index.html                 App workflow and plain-language content
 marin.yml                  MarinOS project metadata
 security.json              Machine-readable security configuration
-SPEC.md                    Authoritative 0.1.0 behavior
+SPEC.md                    Current frontend behavior and integration requirements
 ```
 
 Do not edit `vendor/marinos/` in place. Adopt a reviewed shell release through the App Shell installer and update `platform.shell` to match its manifest.
@@ -118,13 +121,13 @@ Run local-HTTP browser tests when the environment permits Chromium to reach loca
 bash scripts/check.sh --browser
 ```
 
-Run the component/CSP fixtures and full Marin Links workflow without localhost navigation:
+Run the component/CSP fixtures and the mocked Short creation, batch, and reporting workflow without localhost navigation:
 
 ```bash
 bash scripts/check.sh --browser-in-memory
 ```
 
-The Marin Links browser test independently decodes generated and downloaded PNG files and rasterized SVG files. It checks the Link, Many links, and QR code choices, the tracking labels, Brand Center logos, print sizes, Stats tabs and shared Stats links, exact-domain and subdomain rules, deceptive hostnames, HTTP rejection, long links, and dark mode. See [`docs/development.md`](docs/development.md) for test dependencies and manual review steps.
+The full HTTP Marin Links browser test independently decodes generated and downloaded PNG files and rasterized SVG files. It checks the Link, Add many web addresses, and QR code choices, the tracking labels, Brand Center logos, print sizes, Stats tabs and shared Stats links, exact-domain and subdomain rules, deceptive hostnames, HTTP rejection, long links, and dark mode. The new offline Short integration test additionally decodes its QR PNG/SVG exports. See [`docs/development.md`](docs/development.md) for test dependencies and manual review steps.
 
 ## QR dependency
 
@@ -134,8 +137,25 @@ The local wrapper exposes the QR grid and Reed-Solomon block metadata needed by 
 
 ## Security and privacy
 
-The web addresses, tracking choices, logo, and generated files are made in the browser and are not sent to a County server by the app. People who open a link or scan a code are counted by the County tracker, which is the purpose of the app. The page's Content Security Policy blocks outside scripts and allows network requests only to the tracker's API, the Brand Center, and the shared MarinOS information sources. See [`SECURITY.md`](SECURITY.md) and [`security.json`](security.json).
+Long link previews and QR files remain in the browser. Creating a Short link explicitly sends the completed destination, selected tracking details and source path to Marin Links Server. That server privately stores the destination. No API key, cookies, or persistent browser identifiers are used by Marin Links. People who open a link or scan a code are counted by the County tracker, which is the purpose of the app. The page's Content Security Policy blocks outside scripts and allows network requests only to the tracker's API, the Brand Center, and the shared MarinOS information sources. See [`SECURITY.md`](SECURITY.md) and [`security.json`](security.json).
 
 ## Content standard
 
 All user-facing instructions and validation messages should remain suitable for a nontechnical audience at about a sixth-grade reading level. Prefer short sentences, common words, and concrete examples. Developer documentation may use the technical terms needed to maintain the app.
+
+## Short-link integration (v0.2.0)
+
+The only deployment-specific frontend settings are in `assets/tracker-config.js`:
+
+```js
+const serverRoot = "https://l.marinhhs.org/";
+const sourcePath = "/marin-links/";
+```
+
+The frontend derives the API at `{serverRoot}s/api/v1/` and tracked redirects at `{serverRoot}?d=...`. Moving the server to another hostname or URL subdirectory requires editing `serverRoot` only. The server-issued `short_url` is never constructed by the frontend.
+
+**Server administrator setup:** Enable `short_links.creation.public_enabled`. Register both supported frontend locations in `allowed_sources`: `https://marincountygov.github.io/marin-links/` and `https://misc.marinhhs.org/marin-links/`. The frontend sends `/marin-links/` as its source path at either location. Set any County/VPN client-IP allowlist, and populate `public_allowlisted.allowed_hosts` with destinations that may be used. These checks are enforced by Marin Links Server. Source paths and browser origins are not authentication; IP restrictions apply to the users' public/VPN egress IP addresses, not GitHub Pages. CLI and capability-key methods remain independent.
+
+No link is registered when typing, previewing, copying, exporting, or loading Stats. The explicit Create action uses a cryptographically random retry key that stays in page memory. An unchanged retry reuses the same key. Retry protection is limited by the server's retention rules and by the browser staying on the same network; it is not a permanent, worldwide exactly-once promise. The server may stop a large batch because of its current limits. Completed rows remain available for copy and CSV export.
+
+The frontend contract is verified against Marin Links Server v0.4.5. The public reports **do not prove unique people or QR scans**. The overall Short URL report and the report for one known code are shown separately. Short URLs and Long `?d=` redirect counts are not combined, and there is no public short-link catalogue. See [`docs/SPEC-SHORT-API-REBUILD-v1.1.md`](docs/SPEC-SHORT-API-REBUILD-v1.1.md) for the current contract.
