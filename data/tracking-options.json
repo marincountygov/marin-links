@@ -54,6 +54,12 @@
     ],
     "sources": [
       {
+        "id": "marin-county",
+        "code": "marin-county",
+        "label": "Marin County",
+        "legacy": []
+      },
+      {
         "id": "flyer",
         "code": "so-01",
         "label": "Flyer",
@@ -133,6 +139,7 @@
           "weather_together"
         ]
       }
-    ]
+    ],
+    "contents": []
   }
 }

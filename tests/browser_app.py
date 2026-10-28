@@ -176,7 +176,12 @@ def fill_link(page, value: str) -> None:
 
 
 def choose_type(page, value: str) -> None:
-    page.locator(f"#output-{value}").check()
+    # "bulk" is Link with "Add many web addresses" ticked.
+    page.locator("#output-link" if value == "bulk" else f"#output-{value}").check()
+    if value == "bulk":
+        page.locator("#many-addresses").check()
+    elif page.locator("#many-addresses").is_visible():
+        page.locator("#many-addresses").uncheck()
     page.wait_for_timeout(150)
 
 
@@ -243,7 +248,7 @@ def check_destination_modes(context, base_url: str) -> None:
             require(page.locator("#allowed-websites-help").is_visible(), f"County-only help missing for {query!r}")
             expect_rejected(page, outside, FORBIDDEN)
             fill_link(page, "https://hhs.marincounty.gov/healthy")
-            wait_for_link(page, expected_link("https://hhs.marincounty.gov/healthy", [("via", "link")]))
+            wait_for_link(page, expected_link("https://hhs.marincounty.gov/healthy", [("utm_source", "marin-county"), ("via", "link")]))
         finally:
             page.close()
 
@@ -253,7 +258,7 @@ def check_destination_modes(context, base_url: str) -> None:
         require(page.locator("#allowed-websites-help").is_hidden(), "County-only list shows in unrestricted mode")
         choose_type(page, "qr")
         fill_link(page, outside)
-        link = wait_for_qr(page, expected_link(outside, [("via", "qr")]))
+        link = wait_for_qr(page, expected_link(outside, [("utm_source", "marin-county"), ("via", "qr")]))
         require(decode_qr(canvas_png(page)) == link, "Unrestricted QR does not encode the tracked link")
         require("dest=any" not in destination_of(link), "The app's mode parameter leaked into the destination")
         for invalid, error in (
@@ -274,7 +279,7 @@ def check_destination_modes(context, base_url: str) -> None:
                          "https://www.marinfair.org/a", "https://www.marincultural.org/a",
                          "https://marincultural.org/a"):
             fill_link(page, hostname)
-            wait_for_link(page, expected_link(hostname, [("via", "link")]))
+            wait_for_link(page, expected_link(hostname, [("utm_source", "marin-county"), ("via", "link")]))
         for bad in ("https://marincounty.gov.example.com/a", "https://evilmarincounty.gov/a",
                     "https://x.marincountygov.github.io/a", "https://www.cdc.gov/flu?dest=any",
                     "https://marinfair.org.example.com/a", "https://notmarinfair.org/a",
@@ -288,7 +293,7 @@ def check_basics_and_tracking(context, base_url: str) -> None:
     page = open_app(context, base_url)
     try:
         order = page.locator('input[name="output"]').evaluate_all("nodes => nodes.map(n => n.value)")
-        require(order == ["link", "bulk", "qr"], f"Type choices are out of order: {order}")
+        require(order == ["link", "qr"], f"Type choices are out of order: {order}")
         require(page.locator("#output-link").is_checked(), "Link is not the default")
         require(page.locator("#preview-empty").is_visible(), "Initial empty preview is missing")
         require(page.locator("#design-section").is_hidden(), "Design shows in Link mode")
@@ -300,7 +305,7 @@ def check_basics_and_tracking(context, base_url: str) -> None:
 
         base = "https://hhs.marincounty.gov/services/apply?lang=en#start"
         fill_link(page, base)
-        link = wait_for_link(page, expected_link(base, [("via", "link")]))
+        link = wait_for_link(page, expected_link(base, [("utm_source", "marin-county"), ("via", "link")]))
         require(page.locator("#copy-link-primary").get_attribute("data-copy-value") == link, "Copy link value differs")
         require(page.locator("#scan-note").is_hidden() and page.locator("#size-note").is_hidden(),
                 "QR-only notes show in Link mode")
@@ -308,52 +313,59 @@ def check_basics_and_tracking(context, base_url: str) -> None:
         page.locator("#tracking-channel").select_option("ch-05")
         page.locator("#tracking-agency").select_option("ag-14")
         page.locator("#tracking-campaign-choice").select_option(label="Weather Together")
-        labels = [("utm_medium", "ch-05"), ("utm_campaign", "cmp-02"), ("agency", "ag-14"), ("via", "link")]
+        labels = [("utm_medium", "ch-05"), ("utm_source", "marin-county"), ("utm_campaign", "cmp-02"),
+                  ("agency", "ag-14"), ("via", "link")]
         wait_for_link(page, expected_link(base, labels))
 
         # A division adds its own label, and the agency label still names the whole department.
         require(page.locator("#tracking-agency option").count() == 1 + 25 + 20, "Agency list differs from the County list")
         page.locator("#tracking-agency").select_option("ag-14/dv-10")
-        with_division = labels[:3] + [("division", "dv-10")] + labels[3:]
+        with_division = labels[:4] + [("division", "dv-10")] + labels[4:]
         wait_for_link(page, expected_link(base, with_division))
         page.locator("#tracking-agency").select_option("ag-14")
         wait_for_link(page, expected_link(base, labels))
 
+        # Every list ends with "Add a new one".
+        for select in ("#tracking-channel", "#tracking-source", "#tracking-campaign-choice", "#tracking-content-choice"):
+            require(page.locator(f"{select} option").last.get_attribute("value") == "__new__", f"{select} has no Add a new one")
+        require(page.locator("#tracking-source").input_value() == "marin-county", "Source does not default to marin-county")
+
         page.locator("#tracking-campaign-choice").select_option("__new__")
         page.locator("#tracking-campaign").fill("Spring Fair 2027!")
-        labels[1] = ("utm_campaign", "spring-fair-2027")
+        labels[2] = ("utm_campaign", "spring-fair-2027")
+        wait_for_link(page, expected_link(base, labels))
+
+        page.locator("#tracking-channel").select_option("__new__")
+        page.locator("#tracking-channel-new").fill("Community Event")
+        labels[0] = ("utm_medium", "community-event")
+        wait_for_link(page, expected_link(base, labels))
+
+        page.locator("#tracking-source").select_option("so-01")
+        labels[1] = ("utm_source", "so-01")
+        wait_for_link(page, expected_link(base, labels))
+        page.locator("#tracking-source").select_option("__new__")
+        page.locator("#tracking-source-new").fill("Library Desk")
+        labels[1] = ("utm_source", "library-desk")
         wait_for_link(page, expected_link(base, labels))
 
         page.locator("#tracking-date").fill("2026-10-23")
         labels.append(("utm_content", "261023"))
         wait_for_link(page, expected_link(base, labels))
-
-        page.locator("#add-parameter").click()
-        row = page.locator(".qr-parameter-row").first
-        row.locator(".qr-parameter-picker__trigger").click()
-        row.locator('.qr-parameter-picker__option[data-value="utm_content"]').click()
-        row.locator(".qr-parameter-value").fill("bus-stop")
+        page.locator("#tracking-content-choice").select_option("__new__")
+        page.locator("#tracking-content").fill("Bus Stop")
         labels[-1] = ("utm_content", "261023-bus-stop")
         wait_for_link(page, expected_link(base, labels))
 
+        # The four names with fields of their own are not offered in Add a tracking detail.
+        page.locator("#add-parameter").click()
+        row = page.locator(".qr-parameter-row").first
         row.locator(".qr-parameter-picker__trigger").click()
-        row.locator('.qr-parameter-picker__option[data-value="utm_source"]').click()
-        row.locator(".qr-parameter-value-choice").select_option("so-01")
-        labels[-1] = ("utm_content", "261023")
-        labels.append(("utm_source", "so-01"))
+        for name in ("utm_source", "utm_medium", "utm_campaign", "utm_content"):
+            require(row.locator(f'.qr-parameter-picker__option[data-value="{name}"]').count() == 0, f"{name} is still offered")
+        row.locator('.qr-parameter-picker__option[data-value="lang"]').click()
+        row.locator(".qr-parameter-value-choice").select_option("es")
+        labels.append(("lang", "es"))
         wait_for_link(page, expected_link(base, labels))
-
-        row.locator(".qr-parameter-value-choice").select_option("__other__")
-        row.locator(".qr-parameter-value").fill("window")
-        labels[-1] = ("utm_source", "window")
-        wait_for_link(page, expected_link(base, labels))
-
-        # A name used by Channel cannot be added again.
-        row.locator(".qr-parameter-picker__trigger").click()
-        row.locator('.qr-parameter-picker__option[data-value="utm_medium"]').click()
-        row.locator(".qr-parameter-value-choice").select_option("ch-01")
-        page.wait_for_function("() => document.querySelector('.qr-parameter-error') && !document.querySelector('.qr-parameter-error').hidden")
-        require("only once" in row.locator(".qr-parameter-error").text_content(), "Duplicate name was accepted")
 
         # Reset clears everything and returns to Link.
         page.locator("#reset-form").click()
@@ -372,7 +384,22 @@ def check_qr_output(context, base_url: str, folder: Path) -> None:
         require(page.locator("#design-section").is_visible(), "Design is hidden in QR mode")
         base = "https://marincounty.gov/innovation"
         fill_link(page, base)
-        link = wait_for_qr(page, expected_link(base, [("via", "qr")]))
+        link = wait_for_qr(page, expected_link(base, [("utm_source", "marin-county"), ("via", "qr")]))
+        # The page address can be shown under the code, inside the picture.
+        square = page.locator("#qr-canvas").evaluate("c => c.height === c.width")
+        page.locator("#qr-show-address").check()
+        page.wait_for_function("() => { const c = document.querySelector('#qr-canvas'); return c.height > c.width; }")
+        require(square, "The code is not square without the address")
+        require("marincounty.gov/innovation" in page.locator("#qr-canvas").get_attribute("aria-label"),
+                "Address missing from the image description")
+        # A short link prints itself under the code instead.
+        page.locator("#length-short").check()
+        page.wait_for_function("() => document.querySelector('#qr-canvas').getAttribute('aria-label').includes('misc.marinhhs.org')")
+        require(page.locator("#qr-show-address").is_disabled(), "The address option stays on for a short link")
+        page.locator("#length-long").check()
+        page.wait_for_function("() => !document.querySelector('#qr-show-address').disabled")
+        page.locator("#qr-show-address").uncheck()
+        page.wait_for_function("() => { const c = document.querySelector('#qr-canvas'); return c.height === c.width; }")
         require(page.locator("#scan-note").is_visible(), "Scan note is hidden in QR mode")
         require(decode_qr(canvas_png(page)) == link, "QR code does not encode the tracked link")
         note = page.locator("#size-note").text_content()
@@ -402,12 +429,12 @@ def check_qr_output(context, base_url: str, folder: Path) -> None:
         long_link = "https://www.marincounty.gov/departments/hhs/public-health/communicable-disease/" \
                     "flu-vaccination-clinics-and-community-events-for-the-whole-family-this-fall-and-winter-season"
         fill_link(page, long_link)
-        wait_for_qr(page, expected_link(long_link, [("via", "qr")]))
+        wait_for_qr(page, expected_link(long_link, [("utm_source", "marin-county"), ("via", "qr")]))
         crowded = page.locator("#size-note").text_content()
         require("crowded" in crowded, f"Crowded note is missing: {crowded!r}")
         require(page.locator('#download-size option[value="1.5"]').is_disabled(), "A too-small size can be chosen")
         decode = decode_qr(canvas_png(page))
-        require(decode == expected_link(long_link, [("via", "qr")]), "Long link does not decode")
+        require(decode == expected_link(long_link, [("utm_source", "marin-county"), ("via", "qr")]), "Long link does not decode")
     finally:
         page.close()
 
@@ -492,7 +519,7 @@ def check_many_links(context, base_url: str, folder: Path) -> None:
         page.wait_for_function("() => document.querySelectorAll('#bulk-rows tr').length === 6")
         require("3 of 6 links made" in page.locator("#bulk-summary").text_content(), "Summary differs")
         rows = page.locator("#bulk-rows tr")
-        first = expected_link("https://marincounty.gov/innovation", [("agency", "ag-14"), ("via", "link")])
+        first = expected_link("https://marincounty.gov/innovation", [("utm_source", "marin-county"), ("agency", "ag-14"), ("via", "link")])
         require(rows.nth(0).locator("td").nth(1).text_content() == first, "First link differs")
         require("secure HTTPS" in rows.nth(2).text_content(), "HTTP problem is missing")
         require(FORBIDDEN in rows.nth(3).text_content(), "Outside website problem is missing")

@@ -14,10 +14,10 @@ The page has two tabs inside `#start`: **Create** and **Stats**. Create is the d
 
 ### Type
 
-A radio group named **Type** with three choices, in this order: **Link**, **Many links**, **QR code**. Link is the default.
+A radio group named **Type** with two choices, in this order: **Link**, **QR code**. Link is the default. Under the web address field, a checkbox **Add many web addresses** (shown only for Link) swaps the single field for the list.
 
 - **Link:** shows the final link and a Copy link button.
-- **Many links:** a text box for up to 100 web addresses, one per line. A pasted spreadsheet row works; the first web address in it is used. The result is a table with a link for each address, a problem message for each address that fails, Copy all links, and Download CSV. The tracking choices apply to every link. The results use the full page width.
+- **Link with Add many web addresses:** a text box for up to 100 web addresses, one per line. A pasted spreadsheet row works; the first web address in it is used. The result is a table with a link for each address, a problem message for each address that fails, Copy all links, and Download CSV. The tracking choices apply to every link. The results use the full page width.
 - **QR code:** shows the QR code, the Design section (Logo), the print size help, downloads, and Copy link.
 
 The browser can bring back form choices after a refresh. The app reads the real form state on load and when a page is restored.

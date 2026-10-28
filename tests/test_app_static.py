@@ -143,7 +143,7 @@ class MarinQrStaticTests(unittest.TestCase):
         self.assertIn('<option value="svg">SVG</option>', self.html)
         self.assertIn('id="download"', self.html)
         self.assertIn('input[name="background"]', self.app_js)
-        self.assertIn('new Blob([svg], { type: "image/svg+xml;charset=utf-8" })', self.app_js)
+        self.assertIn('new Blob([finished], { type: "image/svg+xml;charset=utf-8" })', self.app_js)
         self.assertIn('saveBlob(svgToBlob(), "marin-links.svg")', self.app_js)
         self.assertIn("PRINT_DPI", self.app_js)
         self.assertIn('id="download-size"', self.html)
@@ -180,10 +180,6 @@ class MarinQrStaticTests(unittest.TestCase):
             self.app_js,
         )
         self.assertEqual(options, [
-            ("utm_source", "Where people see the link"),
-            ("utm_medium", "How the link is shared"),
-            ("utm_campaign", "Campaign or project name"),
-            ("utm_content", "Which version of the link"),
             ("utm_term", "Audience or keyword"),
             ("ref", "Who sent people here"),
             ("source", "Where the visit came from"),
@@ -201,8 +197,10 @@ class MarinQrStaticTests(unittest.TestCase):
         # The plain-language title leads; the technical name sits below it.
         self.assertIn("optionName.textContent = option.title;", self.app_js)
         self.assertIn("optionDescription.textContent = option.hint || option.value;", self.app_js)
-        self.assertIn('const DEFAULT_PARAMETER_NAME = "utm_source"', self.app_js)
-        self.assertIn('utm_source: "flyer"', self.app_js)
+        self.assertIn('const DEFAULT_PARAMETER_NAME = "utm_term"', self.app_js)
+        # Source, Channel, Campaign and Content are fields of their own, so they are not offered again here.
+        for name in ("utm_source", "utm_medium", "utm_campaign", "utm_content"):
+            self.assertNotIn(f'{{ value: "{name}", title:', self.app_js)
         self.assertIn('search.setAttribute("role", "combobox")', self.app_js)
         self.assertIn('listbox.setAttribute("role", "listbox")', self.app_js)
         self.assertIn('search.placeholder = "Type to filter"', self.app_js)
@@ -243,8 +241,10 @@ class MarinQrStaticTests(unittest.TestCase):
         self.assertIn("tracking-channel", parser.labels_for)
         self.assertIn("tracking-campaign", parser.labels_for)
         self.assertIn('<h3 id="tracking-heading">Tracking <span', self.html)
-        self.assertIn('{ name: "utm_medium", value: channel }', self.app_js)
-        self.assertIn('{ name: "utm_campaign", value: campaign }', self.app_js)
+        self.assertIn('addChoice("utm_medium", choiceValue(refs.channel, refs.channelNew))', self.app_js)
+        self.assertIn('addChoice("utm_campaign", choiceValue(refs.campaignChoice, refs.campaign))', self.app_js)
+        self.assertIn('addChoice("utm_source", choiceValue(refs.source, refs.sourceNew) || DEFAULT_SOURCE)', self.app_js)
+        self.assertIn('const DEFAULT_SOURCE = "marin-county"', self.app_js)
         self.assertIn('{ name: "agency", value: agency }', self.app_js)
         self.assertIn("tracking-agency", parser.elements)
         self.assertIn("tracking-campaign-choice", parser.elements)
@@ -291,12 +291,12 @@ class MarinQrStaticTests(unittest.TestCase):
 
     def test_via_label_send_date_print_size_bulk_and_stats_sharing(self) -> None:
         parser = SourceParser(self.html)
-        for element_id in ("output-bulk", "bulk-urls", "bulk-copy", "bulk-csv", "tracking-date",
+        for element_id in ("many-addresses", "bulk-urls", "bulk-copy", "bulk-csv", "tracking-date",
                            "download-size", "size-note", "stats-copy-link", "stats-csv", "stats-via-chart"):
             self.assertIn(element_id, parser.elements)
         self.assertIn('{ name: "via", value: isQrMode() ? "qr" : "link" }', self.app_js)
         self.assertIn("261023", self.html)
-        self.assertIn('dateParameter.value = `${dateCode}-${value}`', self.app_js)
+        self.assertIn('[dateCode, choiceValue(refs.contentChoice, refs.content)]', self.app_js)
         self.assertIn("const MAX_BULK_LINES = 100;", self.app_js)
         self.assertIn("function csvCell(", self.app_js)
         self.assertIn("function csvCell(", self.stats_js)

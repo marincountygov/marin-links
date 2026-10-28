@@ -421,7 +421,6 @@
   display: block;
   width: min(100%, 31rem);
   height: auto;
-  aspect-ratio: 1;
   background: transparent;
 }
 
@@ -716,4 +715,8 @@
 
 .qr-layout[data-mode="bulk"] .qr-actions > button.primary {
   flex: 0 0 auto;
+}
+
+.qr-new-value {
+  margin-top: 0.5rem;
 }

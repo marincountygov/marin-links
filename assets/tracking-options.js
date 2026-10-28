@@ -60,6 +60,12 @@
     ],
     "sources": [
       {
+        "value": "marin-county",
+        "name": "Marin County",
+        "id": "marin-county",
+        "legacy": []
+      },
+      {
         "value": "so-01",
         "name": "Flyer",
         "id": "flyer",
@@ -139,7 +145,8 @@
           "weather_together"
         ]
       }
-    ]
+    ],
+    "contents": []
   };
 
   window.MarinTrackingOptions = Object.freeze(OPTIONS);

@@ -29,6 +29,8 @@ Files:
 - Preserve existing query parameters and fragments. Append labels with `URLSearchParams`.
 - Keep the QR color picker and the Background choice switched off (`FEATURES`) while keeping their code.
 - Do not add analytics, uploads, URL shorteners, or any QR service. Do not store anything about the person using the app.
+- The Source label defaults to `marin-county`. Channel, Source, Campaign, and Content each end with "Add a new one"; a typed value is changed to lowercase words joined by hyphens and is not saved. Source, Channel, Campaign, and Content are not offered again in "Add a tracking detail".
+- The optional address under a QR code (PNG and SVG) is the destination page without scheme, labels, or fragment, in camel case. It is plain text and is never tracked. A Short link prints the link itself under the code instead (the address option is switched off then).
 - Keep the final link visible as text. The QR image must never be the only way to read the destination.
 - QR safety: keep high error correction, the four-module quiet zone, the white backing behind a logo, the correction budget per block, and the decode tests. Finder, timing, format, and version modules are restored over a logo. Alignment modules are not, so nothing is layered over the logo.
 - Stats must say what it counts. A visit is one time a link was opened. Estimated visitors is a guess. Neither is an exact count of people or scans. Numbers the tracker holds back show "Too few visits to show."

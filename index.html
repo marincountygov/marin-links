@@ -60,7 +60,6 @@
               <h3 id="type-heading">Type</h3>
               <div class="qr-output-options" role="radiogroup" aria-labelledby="type-heading">
                 <label for="output-link"><input id="output-link" type="radio" name="output" value="link" checked> <span>Link</span></label>
-                <label for="output-bulk"><input id="output-bulk" type="radio" name="output" value="bulk"> <span>Many links</span></label>
                 <label for="output-qr"><input id="output-qr" type="radio" name="output" value="qr"> <span>QR code</span></label>
               </div>
             </section>
@@ -104,6 +103,10 @@
                 <p id="bulk-error" class="app-error" role="alert" hidden></p>
               </div>
 
+              <div id="many-field" class="app-field">
+                <label for="many-addresses"><input id="many-addresses" name="many-addresses" type="checkbox"> <span>Add many web addresses</span></label>
+              </div>
+
               <fieldset class="app-field" id="length-field">
                 <legend>Length</legend>
                 <div class="qr-output-options">
@@ -136,7 +139,22 @@
                   <label for="tracking-channel">Channel</label>
                   <select id="tracking-channel" name="tracking-channel">
                     <option value="">Not set</option>
+                    <option value="__new__">Add a new one</option>
                   </select>
+                  <div id="tracking-channel-field" class="qr-new-value" hidden>
+                    <label for="tracking-channel-new">New channel</label>
+                    <input id="tracking-channel-new" name="tracking-channel-new" type="text" maxlength="64" autocapitalize="none" spellcheck="false" placeholder="community-event">
+                  </div>
+                </div>
+                <div class="app-field">
+                  <label for="tracking-source">Source</label>
+                  <select id="tracking-source" name="tracking-source">
+                    <option value="__new__">Add a new one</option>
+                  </select>
+                  <div id="tracking-source-field" class="qr-new-value" hidden>
+                    <label for="tracking-source-new">New source</label>
+                    <input id="tracking-source-new" name="tracking-source-new" type="text" maxlength="64" autocapitalize="none" spellcheck="false" placeholder="library-desk">
+                  </div>
                 </div>
                 <div class="app-field">
                   <label for="tracking-agency">Agency</label>
@@ -148,29 +166,30 @@
                   <label for="tracking-campaign-choice">Campaign</label>
                   <select id="tracking-campaign-choice" name="tracking-campaign-choice">
                     <option value="">Not set</option>
-                    <option value="__new__">Start a new one</option>
+                    <option value="__new__">Add a new one</option>
                   </select>
+                  <div id="tracking-campaign-field" class="qr-new-value" hidden>
+                    <label for="tracking-campaign">New campaign</label>
+                    <input id="tracking-campaign" name="tracking-campaign" type="text" maxlength="64" autocapitalize="none" spellcheck="false" placeholder="fall-flu">
+                  </div>
+                </div>
+                <div class="app-field">
+                  <label for="tracking-content-choice">Content</label>
+                  <select id="tracking-content-choice" name="tracking-content-choice">
+                    <option value="">Not set</option>
+                    <option value="__new__">Add a new one</option>
+                  </select>
+                  <div id="tracking-content-field" class="qr-new-value" hidden>
+                    <label for="tracking-content">New content</label>
+                    <input id="tracking-content" name="tracking-content" type="text" maxlength="64" autocapitalize="none" spellcheck="false" placeholder="poster-a">
+                  </div>
                 </div>
                 <div class="app-field">
                   <label for="tracking-date">Send date</label>
                   <input id="tracking-date" name="tracking-date" type="date">
                 </div>
-                <div id="tracking-campaign-field" class="app-field" hidden>
-                  <label for="tracking-campaign">New campaign name</label>
-                  <input
-                    id="tracking-campaign"
-                    name="tracking-campaign"
-                    type="text"
-                    maxlength="64"
-                    autocapitalize="none"
-                    spellcheck="false"
-                    aria-describedby="tracking-campaign-help"
-                    placeholder="fall-flu">
-                  <p id="tracking-campaign-help" class="app-help-text">
-                    A short name for the project. Spaces and capital letters are changed for you. Use a code, not a name or address.
-                  </p>
-                </div>
               </div>
+              <p class="app-help-text">New values use lowercase words joined by hyphens. Use a code, not a name or address. A new value is not saved for next time.</p>
               <div id="parameter-list" class="qr-parameter-list"></div>
               <button id="add-parameter" type="button" class="action-button" data-icon="plus">Add a tracking detail</button>
             </section>
@@ -204,6 +223,10 @@
                 <p id="background-help" class="app-help-text">
                   Use transparent only on a light, plain background. The space behind a logo stays white to help the code scan.
                 </p>
+              </div>
+
+              <div class="app-field qr-address-option">
+                <label for="qr-show-address"><input id="qr-show-address" name="qr-show-address" type="checkbox"> <span>Show the web address under the code</span></label>
               </div>
 
               <div class="app-field">
@@ -402,7 +425,7 @@
           </p>
           <h3>Link, QR code, or many links</h3>
           <p>
-            Choose Link to get a web address you can paste into an email or page. Choose QR code to get a picture you can print. Choose Many links to paste a list of web addresses and get a link for each one, with a CSV file you can save. All of them go through the County tracker so visits can be counted.
+            Choose Link to get a web address you can paste into an email or page. Choose QR code to get a picture you can print. To make links for a whole list, choose Link and then Add many web addresses. Paste the list and you get a link for each one, with a CSV file you can save. All of them go through the County tracker so visits can be counted.
           </p>
           <p>
             Marin Links adds a small label to each web address, <code>via=link</code> or <code>via=qr</code>. Stats uses it to show how many visits came from QR codes and how many from links.

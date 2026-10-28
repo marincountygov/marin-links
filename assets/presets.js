@@ -14,7 +14,7 @@
 
   // The County list of agencies and departments, generated from data/agencies.json (see assets/agencies.js).
   const AGENCIES = window.MarinAgencyList || [];
-  const OPTIONS = window.MarinTrackingOptions || { channels: [], sources: [], languages: [], campaigns: [] };
+  const OPTIONS = window.MarinTrackingOptions || { channels: [], sources: [], languages: [], campaigns: [], contents: [] };
   const CAMPAIGNS = OPTIONS.campaigns;
 
   // Turns a value found in a link or in Stats (a code or an older value) into its name.
@@ -86,6 +86,7 @@
     channels: OPTIONS.channels,
     sources: OPTIONS.sources,
     languages: OPTIONS.languages,
+    contents: OPTIONS.contents || [],
     logos: Object.freeze(LOGOS.map((entry) => Object.freeze(entry))),
     agencies: Object.freeze(AGENCIES.map((entry) => Object.freeze(entry))),
     campaigns: Object.freeze(CAMPAIGNS.map((entry) => Object.freeze(entry)))
