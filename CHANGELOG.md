@@ -2,6 +2,18 @@
 
 All notable changes to Marin Links are documented here.
 
+## Unreleased
+
+### Changed
+
+- The Marin Links Server address now lives in `marin.yml` (`services.links-server.url` and `source-path`). `scripts/server_settings.py` copies it to `assets/tracker-config.js` and `security.json`, `scripts/check.sh` fails when they differ, and the tests read it from `marin.yml`.
+- `scripts/check.sh` finds Python itself (`PYTHON` overrides), and checks for the browser test packages and Chromium before running, with install commands in the message.
+- `tests/browser_app.py` waits for the Short QR panel and the finished update instead of racing it, reads the confirmed Short URL from the page instead of assuming a code, and tries OpenCV's QR reader several ways. The Short integration test no longer needs `cairosvg`; the browser draws the SVG.
+
+### Added
+
+- `tests/requirements.txt` and `.github/workflows/check.yml`, which runs the browser checks on GitHub Actions.
+
 ## 0.2.0 - 2026-10-28
 
 ### Added
