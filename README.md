@@ -13,11 +13,11 @@ Marin Links is a static MarinOS app that makes links and QR codes for approved M
 
 **Create**
 
-- Choose **Link**, **Many links**, or **QR code**.
+- Choose **Link** or **QR code**. With Link, tick **Add many web addresses** to make links for a list.
 - Accepts a complete HTTPS URL, checked against an explicit allowlist. A public `?dest=any` mode allows any HTTPS hostname and keeps every other check.
 - Tracking: Channel, Agency (the County list, with divisions), Campaign (saved ones or a new name), Send date, and extra tracking details with dropdowns for common values. Existing query strings and fragments are kept.
 - Every web address gets a `via=qr` or `via=link` label, so Stats can tell printed codes from shared links.
-- **Many links:** up to 100 web addresses at once, with a table of links, Copy all links, and Download CSV.
+- **Add many web addresses:** up to 100 web addresses at once, with a table of links, Copy all links, and Download CSV.
 - **QR code:** a Marin logo from the Brand Center in the middle (A to Z list, read from the Brand Center), print size help, a note for crowded codes, and one Download button for PNG or SVG. PNG is made at the chosen print size.
 - QR safety: high error correction, a four-module quiet zone, a white backing behind the logo, a conservative correction budget, and nothing layered over the logo.
 

@@ -14,15 +14,12 @@
   const TARGET_PNG_SIZE = 2048;
   const MIN_CONTRAST_WITH_WHITE = 7;
   const ALLOWED_IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/webp"]);
-  const DEFAULT_PARAMETER_NAME = "utm_source";
+  const DEFAULT_PARAMETER_NAME = "utm_term";
   const CUSTOM_PARAMETER_VALUE = "custom";
   const MAX_CUSTOM_PARAMETER_NAME_LENGTH = 64;
   const CUSTOM_PARAMETER_NAME_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._~-]*$/;
   const PARAMETER_OPTIONS = Object.freeze([
-    { value: "utm_source", title: "Where people see the link", group: "Campaign tracking" },
-    { value: "utm_medium", title: "How the link is shared", group: "Campaign tracking" },
-    { value: "utm_campaign", title: "Campaign or project name", group: "Campaign tracking" },
-    { value: "utm_content", title: "Which version of the link", group: "Campaign tracking" },
+    // Source, Channel (utm_medium), Campaign and Content (utm_content) are fields of their own above this list.
     { value: "utm_term", title: "Audience or keyword", group: "Campaign tracking" },
     { value: "ref", title: "Who sent people here", group: "General" },
     { value: "source", title: "Where the visit came from", group: "General" },
@@ -44,13 +41,17 @@
         .filter((option) => option.value !== CUSTOM_PARAMETER_VALUE)
         .map((option) => [option.value, option.title])
     ),
+    utm_source: "Where people see the link",
+    utm_medium: "How the link is shared",
+    utm_campaign: "Campaign or project name",
+    utm_content: "Which version of the link",
     agency: "Agency",
     division: "Division"
   });
   // Typed values should be codes. Block the plain cases of an email address or a phone number.
   const PERSONAL_VALUE_PATTERN = /@|(?:\d[\s().-]*){10,}/;
   const OTHER_VALUE = "__other__";
-  const NEW_CAMPAIGN_VALUE = "__new__";
+  const NEW_VALUE = "__new__";
   const LOGO_UPLOAD_VALUE = "__upload__";
   const QUIET_ZONE_MODULES = 4;
   const MIN_MODULE_INCHES = 0.0197;
@@ -61,15 +62,11 @@
   const asChoices = (list) => list.map(({ value, name }) => [value, name]);
   const TRACKING_LISTS = window.MarinTrackingOptions || { channels: [], sources: [], languages: [] };
   const VALUE_OPTIONS = Object.freeze({
-    utm_source: asChoices(TRACKING_LISTS.sources),
-    utm_medium: asChoices(TRACKING_LISTS.channels),
     lang: asChoices(TRACKING_LISTS.languages)
   });
+  // The County is the source unless someone picks or adds another.
+  const DEFAULT_SOURCE = "marin-county";
   const PARAMETER_PLACEHOLDERS = Object.freeze({
-    utm_source: "flyer",
-    utm_medium: "qr",
-    utm_campaign: "flu-2026",
-    utm_content: "poster-a",
     utm_term: "seniors",
     ref: "library",
     source: "outreach",
@@ -239,6 +236,12 @@
     refs.copyLink.disabled = !enabled;
   }
 
+  // The Type choice is Link or QR code. "Add many web addresses" turns Link into a list of links.
+  function currentMode() {
+    const type = refs.outputs.find((radio) => radio.checked)?.value === "qr" ? "qr" : "link";
+    return type === "link" && refs.many.checked ? "bulk" : type;
+  }
+
   function isQrMode() {
     return state.mode === "qr";
   }
@@ -254,9 +257,12 @@
 
   // Every link and QR code goes through the tracker, which counts the visit and
   // then sends people to the web address.
+  function isShortLink() {
+    return document.querySelector('input[name="length"]:checked')?.value === "short";
+  }
+
   function buildTrackedUrl(destinationHref) {
-    const short = document.querySelector('input[name="length"]:checked')?.value === "short";
-    const base = short ? window.MarinLinksTracker.redirect : window.MarinLinksTracker.endpoint;
+    const base = isShortLink() ? window.MarinLinksTracker.redirect : window.MarinLinksTracker.endpoint;
     return `${base}?d=${encodeURIComponent(destinationHref)}`;
   }
 
@@ -265,6 +271,7 @@
     const bulk = isBulkMode();
     // Many links shows its results across the full width, under the form.
     refs.panelCreate.dataset.mode = state.mode;
+    refs.manyField.hidden = qr;
     refs.singleUrlField.hidden = bulk;
     refs.bulkUrlField.hidden = !bulk;
     refs.singleResult.hidden = bulk;
@@ -806,8 +813,15 @@
   }
 
   function fillPresetLists() {
-    const { agencies, campaigns, channels } = window.MarinLinksPresets;
-    channels.forEach(({ value, name }) => refs.channel.append(new Option(name, value)));
+    const { agencies, campaigns, channels, sources, contents } = window.MarinLinksPresets;
+    // Each list ends with "Add a new one", so the choices go in front of it.
+    const fillChoices = (select, list, selectedValue = "") => {
+      const addNew = select.querySelector(`option[value="${NEW_VALUE}"]`);
+      list.forEach(({ value, name }) => select.insertBefore(new Option(name, value, value === selectedValue, value === selectedValue), addNew));
+    };
+    fillChoices(refs.channel, channels);
+    fillChoices(refs.source, sources, DEFAULT_SOURCE);
+    fillChoices(refs.contentChoice, contents);
     // A department, then its divisions right after it ("Health and Human Services: Public Health").
     agencies.forEach(({ value, name, divisions = [] }) => {
       refs.agency.append(new Option(name, value));
@@ -823,13 +837,15 @@
       refs.logoHelp.textContent = "Shown in the middle of the QR code. Pick a Marin logo or upload a PNG, JPG, or WebP file.";
     }
     renderLogoOptions();
-    const startNew = refs.campaignChoice.querySelector(`option[value="${NEW_CAMPAIGN_VALUE}"]`);
-    campaigns.forEach(({ value, name }) => {
-      refs.campaignChoice.insertBefore(new Option(name, value), startNew);
-    });
+    fillChoices(refs.campaignChoice, campaigns);
   }
 
   // Lowercase words joined by hyphens, so "Fall Flu 2026" and "fall-flu-2026" count together.
+  // The value a field gives: the chosen list item, or the typed new value in hyphen form.
+  function choiceValue(select, input) {
+    return select.value === NEW_VALUE ? normalizeCampaign(input.value) : select.value;
+  }
+
   function normalizeCampaign(text) {
     return text.trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
   }
@@ -839,19 +855,14 @@
     const seenNames = new Set();
     let valid = true;
 
-    const channel = refs.channel.value;
-    if (channel) {
-      parameters.push({ name: "utm_medium", value: channel });
-      seenNames.add("utm_medium");
-    }
-    const campaignChoice = refs.campaignChoice.value;
-    const campaign = campaignChoice === NEW_CAMPAIGN_VALUE
-      ? normalizeCampaign(refs.campaign.value)
-      : campaignChoice;
-    if (campaign) {
-      parameters.push({ name: "utm_campaign", value: campaign });
-      seenNames.add("utm_campaign");
-    }
+    const addChoice = (name, value) => {
+      if (!value) return;
+      parameters.push({ name, value });
+      seenNames.add(name);
+    };
+    addChoice("utm_medium", choiceValue(refs.channel, refs.channelNew));
+    addChoice("utm_source", choiceValue(refs.source, refs.sourceNew) || DEFAULT_SOURCE);
+    addChoice("utm_campaign", choiceValue(refs.campaignChoice, refs.campaign));
     if (refs.agency.value) {
       // A division is stored as "agency/division". The agency label always carries the whole department.
       const [agency, division] = refs.agency.value.split("/");
@@ -865,13 +876,9 @@
     // Lets Stats tell printed QR codes apart from shared links.
     parameters.push({ name: "via", value: isQrMode() ? "qr" : "link" });
     seenNames.add("via");
-    // The send date goes in front of any "which version" value (YYMMDD, like 261023).
+    // The send date goes in front of the content value (YYMMDD, like 261023-poster-a).
     const dateCode = refs.date.value ? refs.date.value.replaceAll("-", "").slice(2) : "";
-    const dateParameter = dateCode ? { name: "utm_content", value: dateCode } : null;
-    if (dateParameter) {
-      parameters.push(dateParameter);
-      seenNames.add("utm_content");
-    }
+    addChoice("utm_content", [dateCode, choiceValue(refs.contentChoice, refs.content)].filter(Boolean).join("-"));
 
     refs.parameterList.querySelectorAll(".qr-parameter-row").forEach((row) => {
       const selection = row.dataset.parameterSelection || DEFAULT_PARAMETER_NAME;
@@ -918,11 +925,6 @@
       if (!value) {
         setParameterRowError(row, [choosing ? valueSelect : valueInput], "Add a value for this tracking detail.");
         valid = false;
-        return;
-      }
-
-      if (name === "utm_content" && dateParameter) {
-        dateParameter.value = `${dateCode}-${value}`;
         return;
       }
 
@@ -980,7 +982,69 @@
     );
   }
 
-  function renderQr(model, color, logoPlan = null, transparentBackground = false) {
+  // The page address for printing: no scheme, labels, or fragment; words in the path joined in camel case.
+  function addressCaption(url) {
+    const camel = (segment) => {
+      const words = segment.split(/[-_\s]+/).filter(Boolean);
+      return words.map((word, index) => {
+        const lower = word.toLowerCase();
+        return index ? lower.charAt(0).toUpperCase() + lower.slice(1) : lower;
+      }).join("");
+    };
+    const path = url.pathname.split("/").filter(Boolean).map((segment) => camel(decodeURIComponent(segment))).join("/");
+    return `${url.hostname}${path ? `/${path}` : ""}`;
+  }
+
+  const CAPTION_COLOR = "#1f1f1f";
+
+  // A PNG with the address in a strip under the code.
+  function withCaptionCanvas(source, text, transparentBackground) {
+    const width = source.width;
+    let size = Math.round(width * 0.045);
+    const probe = document.createElement("canvas").getContext("2d");
+    const font = (px) => `700 ${px}px "Open Sans", Arial, sans-serif`;
+    probe.font = font(size);
+    const available = width * 0.92;
+    const measured = probe.measureText(text).width;
+    if (measured > available) size = Math.max(8, Math.floor(size * available / measured));
+    const strip = Math.round(size * 2.4);
+    const out = document.createElement("canvas");
+    out.width = width;
+    out.height = source.height + strip;
+    const context = out.getContext("2d");
+    if (!transparentBackground) {
+      context.fillStyle = "#ffffff";
+      context.fillRect(0, 0, out.width, out.height);
+    }
+    context.drawImage(source, 0, 0);
+    context.fillStyle = CAPTION_COLOR;
+    context.font = font(size);
+    context.textAlign = "center";
+    context.textBaseline = "middle";
+    context.fillText(text, width / 2, source.height + strip / 2);
+    return out;
+  }
+
+  // The same strip for SVG: the picture gets taller and the text sits in the new space.
+  function withCaptionSvg(svg, text, transparentBackground) {
+    const match = svg.match(/viewBox="0 0 (\d+) (\d+)" width="(\d+)" height="(\d+)"/);
+    if (!match) return svg;
+    const [whole, modules, , width, height] = match;
+    const total = Number(modules);
+    const strip = 3;
+    const newHeight = Math.round(Number(height) * (total + strip) / total);
+    const size = Math.min(1.7, (total * 0.92) / (text.length * 0.62));
+    const escaped = text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    const extra = [
+      transparentBackground ? "" : `  <rect id="qr-address-background" y="${total}" width="${total}" height="${strip}" fill="#ffffff"/>`,
+      `  <text id="qr-address" x="${total / 2}" y="${total + strip / 2}" font-family="Open Sans, Arial, sans-serif" font-weight="700" font-size="${size.toFixed(2)}" text-anchor="middle" dominant-baseline="central" fill="${CAPTION_COLOR}">${escaped}</text>`
+    ].filter(Boolean).join("\n");
+    return svg
+      .replace(whole, `viewBox="0 0 ${total} ${total + strip}" width="${width}" height="${newHeight}"`)
+      .replace("</svg>", `${extra}\n</svg>`);
+  }
+
+  function renderQr(model, color, logoPlan = null, transparentBackground = false, address = "") {
     window.MarinQrSafety.render(
       refs.canvas,
       model,
@@ -991,7 +1055,17 @@
       { transparentBackground }
     );
 
-    refs.canvas.setAttribute("aria-label", "QR code for the final link shown below.");
+    // The address is part of the picture, in the preview as in the downloads.
+    if (address) {
+      const captioned = withCaptionCanvas(refs.canvas, address, transparentBackground);
+      refs.canvas.width = captioned.width;
+      refs.canvas.height = captioned.height;
+      refs.canvas.getContext("2d").drawImage(captioned, 0, 0);
+    }
+
+    refs.canvas.setAttribute("aria-label", address
+      ? `QR code for the final link shown below, with the address ${address} under it.`
+      : "QR code for the final link shown below.");
     refs.canvas.dataset.transparentBackground = transparentBackground ? "true" : "false";
     refs.canvasFrame.dataset.transparent = transparentBackground ? "true" : "false";
     refs.canvas.dataset.qrReady = "true";
@@ -1053,6 +1127,11 @@
         final.searchParams.append(name, value);
       });
       const finalUrl = buildTrackedUrl(final.href);
+      // A short link prints itself under the code. Otherwise the page address prints when asked for.
+      refs.showAddress.disabled = isShortLink();
+      let address = "";
+      if (qr && isShortLink()) address = finalUrl.replace(/^https?:\/\//, "");
+      else if (qr && refs.showAddress.checked) address = addressCaption(destination.url);
 
       if (!qr) {
         state.finalUrl = finalUrl;
@@ -1088,7 +1167,7 @@
           }
         }
 
-        renderQr(model, color, logoPlan, transparentBackground);
+        renderQr(model, color, logoPlan, transparentBackground, address);
       } catch (error) {
         if (error?.name === "AbortError") return;
         console.error(error);
@@ -1108,7 +1187,8 @@
         preparedImage: state.logo?.prepared || null,
         logoPlan,
         transparentBackground,
-        finalUrl
+        finalUrl,
+        address
       });
       refs.canvas.dataset.finalUrl = finalUrl;
       showPrintAdvice(model);
@@ -1275,7 +1355,8 @@
         finalUrl: result.finalUrl
       }
     );
-    return new Blob([svg], { type: "image/svg+xml;charset=utf-8" });
+    const finished = result.address ? withCaptionSvg(svg, result.address, result.transparentBackground) : svg;
+    return new Blob([finished], { type: "image/svg+xml;charset=utf-8" });
   }
 
   function saveBlob(blob, filename) {
@@ -1313,7 +1394,8 @@
           Math.round(inches * PRINT_DPI),
           { transparentBackground: result.transparentBackground }
         );
-        saveBlob(await canvasToBlob(canvas), `marin-links-${inches}in.png`);
+        const finished = result.address ? withCaptionCanvas(canvas, result.address, result.transparentBackground) : canvas;
+        saveBlob(await canvasToBlob(finished), `marin-links-${inches}in.png`);
       }
       announce(`${format.toUpperCase()} downloaded.`);
     } catch (error) {
@@ -1480,12 +1562,26 @@
     if (entry) void useBrandLogo(entry);
   }
 
+  function newValueFields() {
+    return [
+      { select: refs.channel, field: refs.channelField, input: refs.channelNew },
+      { select: refs.source, field: refs.sourceField, input: refs.sourceNew },
+      { select: refs.campaignChoice, field: refs.campaignField, input: refs.campaign },
+      { select: refs.contentChoice, field: refs.contentField, input: refs.content }
+    ];
+  }
+
+  function syncNewValueFields() {
+    newValueFields().forEach(({ select, field }) => {
+      field.hidden = select.value !== NEW_VALUE;
+    });
+  }
+
   // The browser can bring back form choices after a refresh or Back. Read them, so the page matches what is shown.
   function syncFromForm() {
-    const chosenType = refs.outputs.find((radio) => radio.checked)?.value;
-    state.mode = chosenType === "qr" || chosenType === "bulk" ? chosenType : "link";
+    state.mode = currentMode();
     applyMode();
-    refs.campaignField.hidden = refs.campaignChoice.value !== NEW_CAMPAIGN_VALUE;
+    syncNewValueFields();
 
     // A chosen file cannot be restored, so an upload with no file goes back to None.
     if (refs.logoChoice.value === LOGO_UPLOAD_VALUE && !state.logo) refs.logoChoice.value = "";
@@ -1511,7 +1607,7 @@
     state.mode = "link";
     applyMode();
 
-    refs.campaignField.hidden = true;
+    syncNewValueFields();
     state.openParameterPicker?.close(false);
     refs.parameterList.textContent = "";
     refs.addParameter.disabled = false;
@@ -1559,14 +1655,20 @@
       if (color) refs.colorText.value = color;
     });
 
-    refs.channel.addEventListener("change", scheduleUpdate);
-    refs.campaign.addEventListener("input", scheduleUpdate);
+    // Each of these lists ends with "Add a new one", which opens a field for the new value.
+    newValueFields().forEach(({ select, field, input }) => {
+      select.addEventListener("change", () => {
+        field.hidden = select.value !== NEW_VALUE;
+        if (select.value === NEW_VALUE) input.focus();
+        scheduleUpdate();
+      });
+      input.addEventListener("input", scheduleUpdate);
+    });
+    refs.showAddress.addEventListener("change", scheduleUpdate);
     refs.agency.addEventListener("change", scheduleUpdate);
     refs.date.addEventListener("change", scheduleUpdate);
     refs.campaignChoice.addEventListener("change", () => {
       const choice = refs.campaignChoice.value;
-      refs.campaignField.hidden = choice !== NEW_CAMPAIGN_VALUE;
-      if (choice === NEW_CAMPAIGN_VALUE) refs.campaign.focus();
       // A saved campaign can also fill in its usual channel and agency.
       const preset = window.MarinLinksPresets.campaigns.find((entry) => entry.value === choice);
       if (preset?.channel) refs.channel.value = preset.channel;
@@ -1592,10 +1694,17 @@
     refs.outputs.forEach((radio) => {
       radio.addEventListener("change", () => {
         if (!radio.checked) return;
-        state.mode = radio.value;
+        state.mode = currentMode();
         applyMode();
         void updatePreview();
       });
+    });
+    refs.many.addEventListener("change", () => {
+      state.mode = currentMode();
+      applyMode();
+      if (isBulkMode()) refs.bulkUrls.focus();
+      else refs.destination.focus();
+      void updatePreview();
     });
     refs.copyLink.addEventListener("pointerdown", cancelScheduledUpdate);
     refs.resetForm.addEventListener("click", resetForm);
@@ -1607,6 +1716,8 @@
     refs = {
       form: byId("qr-form"),
       panelCreate: byId("panel-create"),
+      many: byId("many-addresses"),
+      manyField: byId("many-field"),
       singleUrlField: byId("single-url-field"),
       bulkUrlField: byId("bulk-url-field"),
       bulkUrls: byId("bulk-urls"),
@@ -1624,6 +1735,15 @@
       parameterList: byId("parameter-list"),
       addParameter: byId("add-parameter"),
       channel: byId("tracking-channel"),
+      channelField: byId("tracking-channel-field"),
+      channelNew: byId("tracking-channel-new"),
+      source: byId("tracking-source"),
+      sourceField: byId("tracking-source-field"),
+      sourceNew: byId("tracking-source-new"),
+      contentChoice: byId("tracking-content-choice"),
+      contentField: byId("tracking-content-field"),
+      content: byId("tracking-content"),
+      showAddress: byId("qr-show-address"),
       agency: byId("tracking-agency"),
       date: byId("tracking-date"),
       campaignChoice: byId("tracking-campaign-choice"),

@@ -15,7 +15,9 @@ ROOT = Path(__file__).resolve().parents[1]
 SOURCE = ROOT / "data" / "tracking-options.json"
 OUTPUT = ROOT / "assets" / "tracking-options.js"
 CODE_PATTERN = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
-LISTS = ("channels", "sources", "languages", "campaigns")
+LISTS = ("channels", "sources", "languages", "campaigns", "contents")
+# People add their own content labels, so that list may start empty.
+MAY_BE_EMPTY = ("contents",)
 HEADER = """/*
  * Marin Links tracking choices.
  * Generated from data/tracking-options.json by scripts/build-options.py. Do not edit.
@@ -37,7 +39,7 @@ def problems_in(data: dict) -> list[str]:
     problems: list[str] = []
     lists = data.get("lists", {})
     for name in LISTS:
-        if not isinstance(lists.get(name), list) or not lists[name]:
+        if not isinstance(lists.get(name), list) or (not lists[name] and name not in MAY_BE_EMPTY):
             problems.append(f"{name} must be a list with at least one item")
     codes: set[str] = set()
     for name in LISTS:
