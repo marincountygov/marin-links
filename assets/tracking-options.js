@@ -43,7 +43,7 @@
       },
       {
         "value": "ch-05",
-        "name": "Print or QR code",
+        "name": "Print",
         "id": "print",
         "legacy": [
           "print"
@@ -146,7 +146,72 @@
         ]
       }
     ],
-    "contents": []
+    "contents": [
+      {
+        "value": "ct-01",
+        "name": "Button",
+        "id": "button",
+        "legacy": [
+          "button"
+        ]
+      },
+      {
+        "value": "ct-02",
+        "name": "Text link",
+        "id": "text-link",
+        "legacy": [
+          "text-link"
+        ]
+      },
+      {
+        "value": "ct-03",
+        "name": "Image or banner",
+        "id": "image-or-banner",
+        "legacy": [
+          "image-or-banner"
+        ]
+      },
+      {
+        "value": "ct-04",
+        "name": "Header",
+        "id": "header",
+        "legacy": [
+          "header"
+        ]
+      },
+      {
+        "value": "ct-05",
+        "name": "Footer",
+        "id": "footer",
+        "legacy": [
+          "footer"
+        ]
+      },
+      {
+        "value": "ct-06",
+        "name": "Email signature",
+        "id": "email-signature",
+        "legacy": [
+          "email-signature"
+        ]
+      },
+      {
+        "value": "ct-07",
+        "name": "Version A",
+        "id": "version-a",
+        "legacy": [
+          "version-a"
+        ]
+      },
+      {
+        "value": "ct-08",
+        "name": "Version B",
+        "id": "version-b",
+        "legacy": [
+          "version-b"
+        ]
+      }
+    ]
   };
 
   window.MarinTrackingOptions = Object.freeze(OPTIONS);
