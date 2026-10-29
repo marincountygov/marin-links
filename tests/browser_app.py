@@ -367,6 +367,12 @@ def check_basics_and_tracking(context, base_url: str) -> None:
         page.locator("#tracking-date").fill("2026-10-23")
         labels.append(("utm_content", "261023"))
         wait_for_link(page, expected_link(base, labels))
+        content_names = page.locator("#tracking-content-choice option").all_text_contents()
+        require(all(name in content_names for name in ("Button", "Text link", "Image or banner", "Header", "Footer", "Email signature", "Version A", "Version B")),
+                f"Content presets are missing: {content_names}")
+        page.locator("#tracking-content-choice").select_option("ct-01")
+        labels[-1] = ("utm_content", "261023-ct-01")
+        wait_for_link(page, expected_link(base, labels))
         page.locator("#tracking-content-choice").select_option("__new__")
         page.locator("#tracking-content").fill("Bus Stop")
         labels[-1] = ("utm_content", "261023-bus-stop")

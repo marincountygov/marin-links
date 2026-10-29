@@ -38,7 +38,7 @@
       {
         "id": "print",
         "code": "ch-05",
-        "label": "Print or QR code",
+        "label": "Print",
         "legacy": [
           "print"
         ]
@@ -140,6 +140,71 @@
         ]
       }
     ],
-    "contents": []
+    "contents": [
+      {
+        "id": "button",
+        "code": "ct-01",
+        "label": "Button",
+        "legacy": [
+          "button"
+        ]
+      },
+      {
+        "id": "text-link",
+        "code": "ct-02",
+        "label": "Text link",
+        "legacy": [
+          "text-link"
+        ]
+      },
+      {
+        "id": "image-or-banner",
+        "code": "ct-03",
+        "label": "Image or banner",
+        "legacy": [
+          "image-or-banner"
+        ]
+      },
+      {
+        "id": "header",
+        "code": "ct-04",
+        "label": "Header",
+        "legacy": [
+          "header"
+        ]
+      },
+      {
+        "id": "footer",
+        "code": "ct-05",
+        "label": "Footer",
+        "legacy": [
+          "footer"
+        ]
+      },
+      {
+        "id": "email-signature",
+        "code": "ct-06",
+        "label": "Email signature",
+        "legacy": [
+          "email-signature"
+        ]
+      },
+      {
+        "id": "version-a",
+        "code": "ct-07",
+        "label": "Version A",
+        "legacy": [
+          "version-a"
+        ]
+      },
+      {
+        "id": "version-b",
+        "code": "ct-08",
+        "label": "Version B",
+        "legacy": [
+          "version-b"
+        ]
+      }
+    ]
   }
 }

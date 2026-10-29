@@ -13,6 +13,8 @@ All notable changes to Marin Links are documented here.
 ### Added
 
 - `tests/requirements.txt` and `.github/workflows/check.yml`, which runs the browser checks on GitHub Actions.
+- Eight Content choices, with permanent codes `ct-01` to `ct-08`: Button, Text link, Image or banner, Header, Footer, Email signature, Version A and Version B. Content tells which piece or spot in a source a link was used in, so it does not repeat Source or Channel; whether a link is a QR code is the automatic `via` label.
+- The Channel "Print or QR code" is now "Print" (code `ch-05` is unchanged, so past visits still resolve). Whether a link is a QR code is the automatic `via` label, not a Channel.
 
 ## 0.2.0 - 2026-10-28
 
