@@ -1664,7 +1664,7 @@
   function saveBulkCsv(entries, filename) {
     const rows = [["Web address", "Your link", "Status", "Problem"], ...entries.map((row) => [row.address, row.link || "", row.status || (row.problem ? "Needs correction" : "Created"), row.problem || ""])];
     const text = rows.map((row) => row.map(csvCell).join(",")).join("\r\n") + "\r\n";
-    saveBlob(new Blob(["\uFEFF", text], { type: "text/csv;charset=utf-8" }), filename);
+    marinDownload({ content: text, name: filename });
     announce("CSV downloaded.");
   }
 
@@ -1753,14 +1753,7 @@
   }
 
   function saveBlob(blob, filename) {
-    const objectUrl = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = objectUrl;
-    link.download = filename;
-    document.body.append(link);
-    link.click();
-    link.remove();
-    window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1000);
+    marinDownload({ content: blob, name: filename });
   }
 
   // One button saves the file type chosen next to it.

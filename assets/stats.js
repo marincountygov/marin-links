@@ -640,14 +640,7 @@
     const title = chart.canvas.dataset.chartTitle || "Chart";
     chartImage(chart.canvas).toBlob((blob) => {
       if (!blob) return;
-      const url = URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = `marin-links-${title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")}.png`;
-      document.body.append(link);
-      link.click();
-      link.remove();
-      window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+      marinDownload({ content: blob, name: `marin-links-${title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")}.png` });
     }, "image/png");
   }
 
@@ -724,15 +717,7 @@
 
   function downloadCsv() {
     if ((state.report === "short" && !state.shortLast) || (state.report !== "short" && !state.last)) return;
-    const blob = new Blob(["\uFEFF", buildCsv()], { type: "text/csv;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `marin-links-stats-${utcDate()}.csv`;
-    document.body.append(link);
-    link.click();
-    link.remove();
-    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+    marinDownload({ content: buildCsv(), name: `marin-links-stats-${utcDate()}.csv` });
   }
 
   function rebuildCharts() {

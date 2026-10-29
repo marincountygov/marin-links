@@ -69,6 +69,8 @@ bash -n "$ROOT_DIR/scripts/check.sh"
 "$PYTHON" "$ROOT_DIR/tests/validate_template.py"
 "$PYTHON" "$ROOT_DIR/tests/test_security_meta.py"
 "$PYTHON" "$ROOT_DIR/vendor/marinos/audit-buttons.py" "$ROOT_DIR" --fail
+# Lists copy, download, file reading and upload code the app does itself; it must list nothing.
+"$PYTHON" "$ROOT_DIR/vendor/marinos/audit-shared-helpers.py" "$ROOT_DIR" --fail
 "$PYTHON" "$ROOT_DIR/scripts/build-agencies.py" --check
 "$PYTHON" "$ROOT_DIR/scripts/build-options.py" --check
 "$PYTHON" "$ROOT_DIR/tests/test_app_static.py"
