@@ -14,7 +14,7 @@ Files:
 - `assets/tracker-config.js`: one trusted server root, application source path, and derived Long/Short/Stats routes.
 - `assets/short-links-api.js`: Marin Links Server v0.4.5 anonymous creation adapter, capability hint, strict response checks, error mapping, and cryptographic retry keys.
 - `assets/presets.js`: saved campaigns and the backup list of Marin logos.
-- `data/agencies.json`: the master list of agencies, departments, and divisions (see `data/README.md`). `assets/agencies.js` is generated from it by `scripts/build-agencies.py`. Edit the JSON, never the generated file. Never rename or reuse an id.
+- `data/agencies.json`: a copy of the master list of agencies, departments, and divisions, which is edited in `marin-data` (`organizations/agencies.json`) and copied here by `scripts/sync-agencies.py` (see `data/README.md`). `assets/agencies.js` is generated from it by `scripts/build-agencies.py`. Never edit the copy or the generated file. Never rename or reuse an id.
 - `assets/authorized-domains.js`: destination allowlist.
 - `assets/qr-image.js`, `assets/qr-safety.js`: logo preparation, sizing, scan-safety checks, PNG and SVG output.
 - `vendor/qrcode/`, `vendor/chart.min.js`: local libraries. `vendor/marinos/`: App Shell, never edited in place.

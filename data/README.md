@@ -9,14 +9,12 @@
 
 ## Change the list
 
-1. Edit `agencies.json`.
-2. Run `python3 scripts/build-agencies.py`. It checks the list and writes `assets/agencies.js`, which the page reads.
-3. Run `bash scripts/check.sh`. It fails if the list is invalid or `assets/agencies.js` is out of date.
+The list is no longer edited here. `data/agencies.json` and `data/agencies.schema.json` are copies of the master list in `marin-data` (`organizations/agencies.json`).
+
+1. Edit `agencies.json` in `marin-data`, then run `python3 check_orgs.py` there.
+2. Here, run `python3 scripts/sync-agencies.py` to copy it, then `python3 scripts/build-agencies.py` to write `assets/agencies.js`, which the page reads.
+3. Run `bash scripts/check.sh`. It fails if the copy differs from `marin-data`, if the list is invalid, or if `assets/agencies.js` is out of date.
 
 ## Where it lives
 
-For now the master list lives in this repo (`marin-links`). Marin Links is the only app that reads it today.
-
-Once this repo is published, other apps can read the list at `https://marincountygov.github.io/marin-links/data/agencies.json`, or copy the file. Either way, keep the ids as they are. The ids are the part other repos rely on, for example the `agency` and `division` labels that Marin Links adds to links and that Stats filters by.
-
-If the list is later moved to a shared home, such as the MarinOS data folder or a repo of shared County data, move `agencies.json`, `agencies.schema.json`, and `scripts/build-agencies.py` together, and keep the same ids.
+The master list lives in `marin-data` (`organizations/agencies.json`). Other apps use it the same way: copy it, keep the ids as they are, and never edit the copy. The ids are the part other repos rely on, for example the `agency` and `division` labels that Marin Links adds to links and that Stats filters by.
