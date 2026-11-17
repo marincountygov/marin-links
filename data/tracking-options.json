@@ -1,5 +1,5 @@
 {
-  "$comment": "Choices for Marin Links tracking lists. 'code' is the only value sent in a link. It is permanent: never change, reuse, or renumber it. 'label' is what people see. 'legacy' lists older values that mean the same choice, so past visits still resolve in Stats. Run scripts/build-options.py after editing.",
+  "$comment": "Choices for Marin Links tracking lists. 'code' is the only value sent in a link. It is permanent: never change, reuse, or renumber it. 'label' is what people see. 'legacy' lists older values that mean the same choice, so past visits still resolve in Stats. Run scripts/build-options.py after editing. Campaigns are not listed here. They come from the shared list of projects in marin-data (data/projects.json, copied by scripts/sync-projects.py).",
   "schemaVersion": "1.0.0",
   "lists": {
     "channels": [
@@ -120,24 +120,6 @@
         "code": "es",
         "label": "Spanish",
         "legacy": []
-      }
-    ],
-    "campaigns": [
-      {
-        "id": "envision-marin",
-        "code": "cmp-01",
-        "label": "Envision Marin",
-        "legacy": [
-          "envision_marin"
-        ]
-      },
-      {
-        "id": "weather-together",
-        "code": "cmp-02",
-        "label": "Weather Together",
-        "legacy": [
-          "weather_together"
-        ]
       }
     ],
     "contents": [
