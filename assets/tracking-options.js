@@ -1,6 +1,6 @@
 /*
  * Marin Links tracking choices.
- * Generated from data/tracking-options.json by scripts/build-options.py. Do not edit.
+ * Generated from data/tracking-options.json and data/projects.json by scripts/build-options.py. Do not edit.
  * A link carries only the code. The name is what people see.
  */
 
@@ -138,12 +138,24 @@
         ]
       },
       {
+        "value": "cmp-03",
+        "name": "Tam Junction Placemaking",
+        "id": "tam-junction-placemaking",
+        "legacy": []
+      },
+      {
         "value": "cmp-02",
         "name": "Weather Together",
         "id": "weather-together",
         "legacy": [
           "weather_together"
         ]
+      },
+      {
+        "value": "cmp-04",
+        "name": "West Marin Visioning",
+        "id": "west-marin-visioning",
+        "legacy": []
       }
     ],
     "contents": [

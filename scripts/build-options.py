@@ -13,6 +13,7 @@ import sys
 
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE = ROOT / "data" / "tracking-options.json"
+PROJECTS = ROOT / "data" / "projects.json"  # a copy of marin-data projects/projects.json
 OUTPUT = ROOT / "assets" / "tracking-options.js"
 CODE_PATTERN = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
 LISTS = ("channels", "sources", "languages", "campaigns", "contents")
@@ -20,7 +21,7 @@ LISTS = ("channels", "sources", "languages", "campaigns", "contents")
 MAY_BE_EMPTY = ("contents",)
 HEADER = """/*
  * Marin Links tracking choices.
- * Generated from data/tracking-options.json by scripts/build-options.py. Do not edit.
+ * Generated from data/tracking-options.json and data/projects.json by scripts/build-options.py. Do not edit.
  * A link carries only the code. The name is what people see.
  */
 
@@ -76,12 +77,29 @@ def render(data: dict) -> str:
     return HEADER + body + FOOTER
 
 
+def campaigns_from(projects: dict) -> list[dict]:
+    """The campaigns are the shared projects that have a links entry, A to Z by name."""
+    entries = [
+        {"id": p["id"], "code": p["links"]["code"], "label": p["name"], "legacy": p["links"]["legacy"]}
+        for p in projects.get("projects", [])
+        if "links" in p
+    ]
+    return sorted(entries, key=lambda e: e["label"].casefold())
+
+
 def main() -> int:
     check = "--check" in sys.argv[1:]
     data = json.loads(SOURCE.read_text(encoding="utf-8"))
+    if "campaigns" in data.get("lists", {}):
+        print("data/tracking-options.json must not list campaigns. They come from data/projects.json.", file=sys.stderr)
+        return 1
+    if not PROJECTS.is_file():
+        print("data/projects.json is missing. Run: python3 scripts/sync-projects.py", file=sys.stderr)
+        return 1
+    data["lists"]["campaigns"] = campaigns_from(json.loads(PROJECTS.read_text(encoding="utf-8")))
     problems = problems_in(data)
     if problems:
-        print("data/tracking-options.json has problems:", file=sys.stderr)
+        print("The tracking options have problems:", file=sys.stderr)
         for problem in problems:
             print(f"  - {problem}", file=sys.stderr)
         return 1
