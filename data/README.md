@@ -26,5 +26,5 @@ The master list lives in `marin-data` (`organizations/agencies.json`). Other app
 The campaigns are not listed there. They come from the shared list of projects in `marin-data` (`projects/projects.json`): every project with a `links` entry is a campaign, shown A to Z. `data/projects.json` is a copy. Never edit it here.
 
 1. To add or change a campaign, edit the project in `marin-data`, then run `python3 check_projects.py` there.
-2. Here, run `python3 scripts/sync-projects.py` to copy the list, then `python3 scripts/build-options.py` to write `assets/tracking-options.js`, which the page reads. The daily update does both and pushes a `data-sync` branch.
+2. Here, run `python3 scripts/sync-projects.py` to copy the list, then `python3 scripts/build-options.py` to write `assets/tracking-options.js`, which the page reads. The scheduled update does both and pushes a `data-sync` branch.
 3. Run `bash scripts/check.sh`. It fails if the copy differs from `marin-data` or if `assets/tracking-options.js` is out of date.
