@@ -388,6 +388,12 @@
         "legacy": []
       },
       {
+        "value": "marin-exhibit-hall",
+        "name": "Marin Exhibit Hall",
+        "id": "marin-exhibit-hall",
+        "legacy": []
+      },
+      {
         "value": "marin-health-wellness-connection-center",
         "name": "Marin Health & Wellness Campus Connection Center",
         "id": "marin-health-wellness-connection-center",
@@ -397,6 +403,18 @@
         "value": "marin-humane",
         "name": "Marin Humane",
         "id": "marin-humane",
+        "legacy": []
+      },
+      {
+        "value": "marin-showcase-theater",
+        "name": "Marin Showcase Theater",
+        "id": "marin-showcase-theater",
+        "legacy": []
+      },
+      {
+        "value": "marin-veterans-memorial-auditorium",
+        "name": "Marin Veterans' Memorial Auditorium",
+        "id": "marin-veterans-memorial-auditorium",
         "legacy": []
       },
       {
