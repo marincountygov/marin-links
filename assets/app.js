@@ -60,9 +60,11 @@
   // Common answers. A short list keeps spelling the same, so Stats groups visits together.
   // Common answers, from the generated list. A link carries the code, not the name.
   const asChoices = (list) => list.map(({ value, name }) => [value, name]);
-  const TRACKING_LISTS = window.MarinTrackingOptions || { channels: [], sources: [], languages: [] };
+  const TRACKING_LISTS = window.MarinTrackingOptions || { channels: [], sources: [], languages: [], locations: [] };
   const VALUE_OPTIONS = Object.freeze({
-    lang: asChoices(TRACKING_LISTS.languages)
+    lang: asChoices(TRACKING_LISTS.languages),
+    // The places and sites come from the shared list in marin-data. Without that list, the value is typed.
+    ...(TRACKING_LISTS.locations && TRACKING_LISTS.locations.length ? { location: asChoices(TRACKING_LISTS.locations) } : {})
   });
   // The County is the source unless someone picks or adds another.
   const DEFAULT_SOURCE = "marin-county";

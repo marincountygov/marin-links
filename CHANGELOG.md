@@ -12,6 +12,7 @@ All notable changes to Marin Links are documented here.
 
 ### Added
 
+- Place or site now has a list to choose from: every city, town, community, supervisorial district and facility in Marin County, with permanent codes such as `san-rafael`, `marin-district-3` and `civic-center`. "Something else" still lets people type their own. The list comes from the shared data in `marin-data`, and Stats shows the names.
 - `tests/requirements.txt` and `.github/workflows/check.yml`, which runs the browser checks on GitHub Actions.
 - Eight Content choices, with permanent codes `ct-01` to `ct-08`: Button, Text link, Image or banner, Header, Footer, Email signature, Version A and Version B. Content tells which piece or spot in a source a link was used in, so it does not repeat Source or Channel; whether a link is a QR code is the automatic `via` label.
 - The Channel "Print or QR code" is now "Print" (code `ch-05` is unchanged, so past visits still resolve). Whether a link is a QR code is the automatic `via` label, not a Channel.

@@ -14,14 +14,15 @@ import sys
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE = ROOT / "data" / "tracking-options.json"
 PROJECTS = ROOT / "data" / "projects.json"  # a copy of marin-data projects/projects.json
+LOCATIONS = ROOT / "data" / "locations.json"  # a copy of marin-data organizations/locations.json
 OUTPUT = ROOT / "assets" / "tracking-options.js"
 CODE_PATTERN = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
-LISTS = ("channels", "sources", "languages", "campaigns", "contents")
+LISTS = ("channels", "sources", "languages", "campaigns", "locations", "contents")
 # People add their own content labels, so that list may start empty.
 MAY_BE_EMPTY = ("contents",)
 HEADER = """/*
  * Marin Links tracking choices.
- * Generated from data/tracking-options.json and data/projects.json by scripts/build-options.py. Do not edit.
+ * Generated from data/tracking-options.json, data/projects.json and data/locations.json by scripts/build-options.py. Do not edit.
  * A link carries only the code. The name is what people see.
  */
 
@@ -87,16 +88,29 @@ def campaigns_from(projects: dict) -> list[dict]:
     return sorted(entries, key=lambda e: e["label"].casefold())
 
 
+def locations_from(locations: dict) -> list[dict]:
+    """The places and sites people can name, A to Z by label. The code is permanent and is all a link carries."""
+    entries = [{"id": l["code"], "code": l["code"], "label": l["label"], "legacy": []} for l in locations.get("locations", [])]
+    return sorted(entries, key=lambda e: (e["label"].casefold(), e["code"]))
+
+
 def main() -> int:
     check = "--check" in sys.argv[1:]
     data = json.loads(SOURCE.read_text(encoding="utf-8"))
     if "campaigns" in data.get("lists", {}):
         print("data/tracking-options.json must not list campaigns. They come from data/projects.json.", file=sys.stderr)
         return 1
+    if "locations" in data.get("lists", {}):
+        print("data/tracking-options.json must not list locations. They come from data/locations.json.", file=sys.stderr)
+        return 1
+    if not LOCATIONS.is_file():
+        print("data/locations.json is missing. Run: python3 scripts/sync-locations.py", file=sys.stderr)
+        return 1
     if not PROJECTS.is_file():
         print("data/projects.json is missing. Run: python3 scripts/sync-projects.py", file=sys.stderr)
         return 1
     data["lists"]["campaigns"] = campaigns_from(json.loads(PROJECTS.read_text(encoding="utf-8")))
+    data["lists"]["locations"] = locations_from(json.loads(LOCATIONS.read_text(encoding="utf-8")))
     problems = problems_in(data)
     if problems:
         print("The tracking options have problems:", file=sys.stderr)
