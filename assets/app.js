@@ -25,7 +25,7 @@
     { value: "source", title: "Where the visit came from", group: "General" },
     { value: "campaign", title: "Campaign name", group: "General" },
     { value: "event", title: "Event name", group: "General" },
-    { value: "location", title: "Place or site", group: "General" },
+    { value: "location", title: "Place or facility", group: "General" },
     { value: "lang", title: "Language", group: "General" },
     { value: "category", title: "Type of content", group: "General" },
     { value: "topic", title: "Topic", group: "General" },
@@ -63,7 +63,7 @@
   const TRACKING_LISTS = window.MarinTrackingOptions || { channels: [], sources: [], languages: [], locations: [] };
   const VALUE_OPTIONS = Object.freeze({
     lang: asChoices(TRACKING_LISTS.languages),
-    // The places and sites come from the shared list in marin-data. Without that list, the value is typed.
+    // The places and facilities come from the shared list in marin-data. Without that list, the value is typed.
     ...(TRACKING_LISTS.locations && TRACKING_LISTS.locations.length ? { location: asChoices(TRACKING_LISTS.locations) } : {})
   });
   // The County is the source unless someone picks or adds another.
