@@ -248,6 +248,18 @@ class MarinQrStaticTests(unittest.TestCase):
         security = (ROOT / "security.json").read_text(encoding="utf-8")
         self.assertIn(f'"{read_settings()["origin"]}"', security)
 
+    def test_place_or_site_choices_come_from_the_shared_list(self) -> None:
+        shared = json.loads((ROOT / "data" / "locations.json").read_text(encoding="utf-8"))["locations"]
+        options = (ROOT / "assets" / "tracking-options.js").read_text(encoding="utf-8")
+        for location in shared:
+            self.assertIn(f'"value": "{location["code"]}"', options)
+        codes = [location["code"] for location in shared]
+        self.assertEqual(len(codes), len(set(codes)))
+        for code in ("san-rafael", "marin-district-3", "bolinas", "civic-center"):
+            self.assertIn(code, codes)
+        self.assertIn("location: asChoices(TRACKING_LISTS.locations)", self.app_js)
+        self.assertIn("location: OPTIONS.locations", (ROOT / "assets" / "presets.js").read_text(encoding="utf-8"))
+
     def test_tracking_has_channel_campaign_and_value_dropdowns(self) -> None:
         parser = SourceParser(self.html)
         self.assertIn("tracking-channel", parser.elements)

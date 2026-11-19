@@ -74,6 +74,7 @@ bash -n "$ROOT_DIR/scripts/check.sh"
 "$PYTHON" "$ROOT_DIR/scripts/sync-agencies.py" --check
 "$PYTHON" "$ROOT_DIR/scripts/build-agencies.py" --check
 "$PYTHON" "$ROOT_DIR/scripts/sync-projects.py" --check
+"$PYTHON" "$ROOT_DIR/scripts/sync-locations.py" --check
 "$PYTHON" "$ROOT_DIR/scripts/build-options.py" --check
 "$PYTHON" "$ROOT_DIR/tests/test_app_static.py"
 
