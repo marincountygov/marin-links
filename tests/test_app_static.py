@@ -188,7 +188,7 @@ class MarinQrStaticTests(unittest.TestCase):
             ("source", "Where the visit came from"),
             ("campaign", "Campaign name"),
             ("event", "Event name"),
-            ("location", "Place or site"),
+            ("location", "Place or facility"),
             ("lang", "Language"),
             ("category", "Type of content"),
             ("topic", "Topic"),

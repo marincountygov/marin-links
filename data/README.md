@@ -29,9 +29,9 @@ The campaigns are not listed there. They come from the shared list of projects i
 2. Here, run `python3 scripts/sync-projects.py` to copy the list, then `python3 scripts/build-options.py` to write `assets/tracking-options.js`, which the page reads. The scheduled update does both and pushes a `data-sync` branch.
 3. Run `bash scripts/check.sh`. It fails if the copy differs from `marin-data` or if `assets/tracking-options.js` is out of date.
 
-## Places and sites
+## Places and facilities
 
-The "Place or site" choices (the `location` value) are not listed in `tracking-options.json` either. They come from the shared list in `marin-data` (`organizations/locations.json`): every city, town, community, supervisorial district and facility. The code is the part a link carries (`san-rafael`, `marin-district-3`, `bolinas`, `civic-center`). A code is permanent, and `marin-data` fails if one is removed or changed. `data/locations.json` is a copy. Never edit it here.
+The "Place or facility" choices (the `location` value) are not listed in `tracking-options.json` either. They come from the shared list in `marin-data` (`organizations/locations.json`): every city, town, community, supervisorial district and facility. The code is the part a link carries (`san-rafael`, `marin-district-3`, `bolinas`, `civic-center`). A code is permanent, and `marin-data` fails if one is removed or changed. `data/locations.json` is a copy. Never edit it here.
 
 1. To add or rename a place or site, change it in `marin-data`, then run `bash scripts/build.sh` there.
 2. Here, run `python3 scripts/sync-locations.py` to copy the list, then `python3 scripts/build-options.py` to write `assets/tracking-options.js`. The scheduled update does both and pushes a `data-sync` branch.

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Copy the list of places and sites from marin-data into data/locations.json.
+"""Copy the list of places and facilities from marin-data into data/locations.json.
 
-The places and sites shown as Place or site choices in the tracking choices are kept in marin-data (organizations/locations.json).
+The places and facilities shown as Place or facility choices in the tracking choices are kept in marin-data (organizations/locations.json).
 data/locations.json is a copy. Never edit it here. After a sync, run python3 scripts/build-options.py.
 
   python3 scripts/sync-locations.py           copy ../marin-data/organizations/locations.json
