@@ -6,6 +6,7 @@ All notable changes to Marin Links are documented here.
 
 ### Changed
 
+- The copies of shared County data are synced by one script kept in `marin-data` (`python3 ../marin-data/scripts/sync_copies.py .`), and `scripts/check.sh` checks them with it. The three `scripts/sync-*.py` files are gone.
 - The Place or site choice is now named Place or facility, to match the names the other Marin apps use for places.
 - The Marin Links Server address now lives in `marin.yml` (`services.links-server.url` and `source-path`). `scripts/server_settings.py` copies it to `assets/tracker-config.js` and `security.json`, `scripts/check.sh` fails when they differ, and the tests read it from `marin.yml`.
 - `scripts/check.sh` finds Python itself (`PYTHON` overrides), and checks for the browser test packages and Chromium before running, with install commands in the message.

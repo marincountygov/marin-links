@@ -18,7 +18,7 @@ Open `http://127.0.0.1:8765/`. No application build step is required.
 - `assets/tracker-config.js`: trusted server root, application source path, and derived routes.
 - `assets/short-links-api.js`: Marin Links Server v0.4.5 capability, creation, response-validation, and retry-key adapter.
 - `assets/presets.js`: saved campaigns and the backup list of Marin logos. Add a saved campaign here.
-- `data/agencies.json`: a copy of the master list of agencies, departments, and divisions. Edit the list in `marin-data`, run `python3 scripts/sync-agencies.py` to copy it, then `python3 scripts/build-agencies.py` to rebuild `assets/agencies.js`. See `data/README.md`.
+- `data/agencies.json`: a copy of the master list of agencies, departments, and divisions. Edit the list in `marin-data`, run `python3 ../marin-data/scripts/sync_copies.py .` to copy it, then `python3 scripts/build-agencies.py` to rebuild `assets/agencies.js`. See `data/README.md`.
 - `assets/app.css`: styles for this app only.
 - `assets/authorized-domains.js`: destination policy.
 - `assets/qr-image.js`: local logo preparation and transparent-edge trimming.
