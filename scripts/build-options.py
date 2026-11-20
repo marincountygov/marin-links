@@ -104,10 +104,10 @@ def main() -> int:
         print("data/tracking-options.json must not list locations. They come from data/locations.json.", file=sys.stderr)
         return 1
     if not LOCATIONS.is_file():
-        print("data/locations.json is missing. Run: python3 scripts/sync-locations.py", file=sys.stderr)
+        print("data/locations.json is missing. Run: python3 ../marin-data/scripts/sync_copies.py .", file=sys.stderr)
         return 1
     if not PROJECTS.is_file():
-        print("data/projects.json is missing. Run: python3 scripts/sync-projects.py", file=sys.stderr)
+        print("data/projects.json is missing. Run: python3 ../marin-data/scripts/sync_copies.py .", file=sys.stderr)
         return 1
     data["lists"]["campaigns"] = campaigns_from(json.loads(PROJECTS.read_text(encoding="utf-8")))
     data["lists"]["locations"] = locations_from(json.loads(LOCATIONS.read_text(encoding="utf-8")))

@@ -71,10 +71,13 @@ bash -n "$ROOT_DIR/scripts/check.sh"
 "$PYTHON" "$ROOT_DIR/vendor/marinos/audit-buttons.py" "$ROOT_DIR" --fail
 # Lists copy, download, file reading and upload code the app does itself; it must list nothing.
 "$PYTHON" "$ROOT_DIR/vendor/marinos/audit-shared-helpers.py" "$ROOT_DIR" --fail
-"$PYTHON" "$ROOT_DIR/scripts/sync-agencies.py" --check
+# Every file marin-data gives this app is a copy. Skipped when marin-data is not next to this repo.
+if [[ -f "$ROOT_DIR/../marin-data/scripts/sync_copies.py" ]]; then
+  "$PYTHON" "$ROOT_DIR/../marin-data/scripts/sync_copies.py" "$ROOT_DIR" --check
+else
+  printf 'SKIP: marin-data is not next to this repo; its copies were not checked.\n' >&2
+fi
 "$PYTHON" "$ROOT_DIR/scripts/build-agencies.py" --check
-"$PYTHON" "$ROOT_DIR/scripts/sync-projects.py" --check
-"$PYTHON" "$ROOT_DIR/scripts/sync-locations.py" --check
 "$PYTHON" "$ROOT_DIR/scripts/build-options.py" --check
 "$PYTHON" "$ROOT_DIR/tests/test_app_static.py"
 
